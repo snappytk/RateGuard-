@@ -1,0 +1,7 @@
+{
+  "name": "RateGuard",
+  "description": "High-stakes Vertical SaaS for freight forwarders to normalize messy quotes, protect margins with Profit Guard™, and compare lane rates using advanced Gemini-powered OCR.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

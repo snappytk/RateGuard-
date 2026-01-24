@@ -1,0 +1,109 @@
+
+import React from 'react';
+import { Users, UserPlus, Clock, Zap, Shield, CheckCircle } from 'lucide-react';
+import { TeamMember } from '../types';
+
+const TeamWorkspace: React.FC = () => {
+  const members: TeamMember[] = [
+    { id: '1', name: 'John Doe', role: 'Manager', status: 'Online', activity: 'Reviewed 12 flagged quotes' },
+    { id: '2', name: 'Sarah Miller', role: 'Processor', status: 'Online', activity: 'Ingested 42 carrier quotes' },
+    { id: '3', name: 'Mike Ross', role: 'Processor', status: 'Offline', activity: 'Last sync: 2 hours ago' },
+    { id: '4', name: 'Atlas AI', role: 'Processor', status: 'Online', activity: 'Auditing global surcharge feed' }
+  ];
+
+  return (
+    <div className="space-y-10 animate-in fade-in duration-500">
+      <div className="flex items-end justify-between">
+        <div>
+          <h2 className="text-4xl font-black text-white tracking-tighter mb-2">Team Workspace</h2>
+          <p className="text-zinc-500">Coordinate your operations team and manage role-based access.</p>
+        </div>
+        <button className="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-widest text-[10px] rounded-2xl shadow-xl transition-all active:scale-95 flex items-center gap-2">
+           <UserPlus size={16} /> Invite Member
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
+        <div className="md:col-span-8 space-y-6">
+           <div className="bg-[#121826]/40 border border-zinc-800 rounded-[2.5rem] overflow-hidden shadow-2xl">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-zinc-900/30 text-[10px] font-black text-zinc-600 uppercase tracking-widest border-b border-zinc-800/50">
+                    <th className="px-10 py-6">Member</th>
+                    <th className="px-6 py-6">Role</th>
+                    <th className="px-6 py-6">Live Status</th>
+                    <th className="px-6 py-6 text-right">Recent Session</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800/30">
+                  {members.map(m => (
+                    <tr key={m.id} className="hover:bg-zinc-800/20 transition-all">
+                       <td className="px-10 py-6">
+                          <div className="flex items-center gap-4">
+                             <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-xs ${m.name === 'Atlas AI' ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400'}`}>
+                                {m.name === 'Atlas AI' ? <Zap size={16} /> : m.name[0]}
+                             </div>
+                             <span className="text-sm font-bold text-white">{m.name}</span>
+                          </div>
+                       </td>
+                       <td className="px-6 py-6">
+                          <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${m.role === 'Manager' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-zinc-800 text-zinc-500'}`}>
+                             {m.role}
+                          </span>
+                       </td>
+                       <td className="px-6 py-6">
+                          <div className="flex items-center gap-2">
+                             <div className={`w-2 h-2 rounded-full ${m.status === 'Online' ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-700'}`} />
+                             <span className="text-xs font-medium text-zinc-400">{m.status}</span>
+                          </div>
+                       </td>
+                       <td className="px-6 py-6 text-right">
+                          <span className="text-xs text-zinc-500 font-medium">{m.activity}</span>
+                       </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+           </div>
+        </div>
+
+        <div className="md:col-span-4 space-y-6">
+           <div className="bg-zinc-900 border border-zinc-800 rounded-[2rem] p-8 space-y-6 shadow-xl">
+              <div className="flex items-center gap-3">
+                 <Shield size={20} className="text-blue-500" />
+                 <h4 className="text-sm font-black text-white uppercase tracking-widest">Workflow Guard</h4>
+              </div>
+              <p className="text-xs text-zinc-500 leading-relaxed font-medium">
+                 Your workflow requires <span className="text-white font-bold underline">Human-in-the-Loop</span> for any quote drift exceeding 20%. Processors can only approve optimal quotes.
+              </p>
+              <div className="space-y-4 pt-4 border-t border-zinc-800">
+                 <div className="flex items-center justify-between text-xs">
+                    <span className="text-zinc-400">Daily Audit Quota</span>
+                    <span className="text-white font-bold">142 / 500</span>
+                 </div>
+                 <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-600 w-[28%]" />
+                 </div>
+              </div>
+           </div>
+
+           <div className="p-8 bg-gradient-to-br from-indigo-900/50 to-blue-900/50 border border-blue-500/20 rounded-[2rem] space-y-4">
+              <h4 className="text-sm font-black text-white flex items-center gap-2 uppercase tracking-widest">
+                 <Clock size={16} /> Session History
+              </h4>
+              <div className="space-y-3">
+                 {[1,2,3].map(i => (
+                   <div key={i} className="flex items-center gap-3 text-xs">
+                      <CheckCircle size={14} className="text-emerald-500" />
+                      <span className="text-zinc-300">Manager approved batch #842</span>
+                   </div>
+                 ))}
+              </div>
+           </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default TeamWorkspace;

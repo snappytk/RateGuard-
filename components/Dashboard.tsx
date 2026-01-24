@@ -1,0 +1,222 @@
+
+import React, { useState, useRef, useEffect } from 'react';
+import { 
+  LogOut, Bell, Menu, X, LayoutDashboard, Settings as SettingsIcon, 
+  HelpCircle, ChevronRight, FileText, History, Users, Award, BarChart2,
+  Shield, Scale, Cookie
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import Sidebar from './Sidebar';
+import IntelligenceFeed from './IntelligenceFeed';
+import DashboardHome from './DashboardHome';
+import QuoteHistory from './QuoteHistory';
+import LaneAnalysis from './LaneAnalysis';
+import Billing from './Billing';
+import Settings from './Settings';
+import Support from './Support';
+import ImageStudio from './ImageStudio';
+import CarrierScorecards from './CarrierScorecards';
+import TeamWorkspace from './TeamWorkspace';
+import ProfitGuardSidebar from './ProfitGuardSidebar';
+import PrivacyPolicy from './PrivacyPolicy';
+import TermsAndConditions from './TermsAndConditions';
+import CookiePolicy from './CookiePolicy';
+import { AppView, QuoteData } from '../types';
+
+interface DashboardProps {
+  currentView: AppView;
+  onViewChange: (view: AppView) => void;
+  onLogout: () => void;
+}
+
+const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogout }) => {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isNavMenuOpen, setIsNavMenuOpen] = useState(false);
+  const navMenuRef = useRef<HTMLDivElement>(null);
+
+  const [quotes, setQuotes] = useState<QuoteData[]>([
+    {
+      id: 'Q-240124-A',
+      carrier: 'Maersk',
+      origin: 'SHA',
+      destination: 'LAX',
+      weight: 200,
+      totalCost: 1450,
+      surcharges: [{ name: 'BAF', amount: 150 }],
+      transitTime: '10 days',
+      status: 'optimal',
+      workflowStatus: 'approved',
+      reliabilityScore: 92,
+      timestamp: Date.now() - 7200000,
+      notes: []
+    },
+    {
+      id: 'Q-240124-B',
+      carrier: 'MSC',
+      origin: 'SEA',
+      destination: 'LAX',
+      weight: 200,
+      totalCost: 1200,
+      surcharges: [{ name: 'BAF', amount: 150 }],
+      transitTime: '10 days',
+      status: 'analyzed',
+      workflowStatus: 'reviewed',
+      reliabilityScore: 65,
+      timestamp: Date.now() - 10800000,
+      notes: [{ id: '1', user: 'Processor', text: 'Cheapest option, but reliability is flagging.', timestamp: Date.now() }]
+    },
+    {
+      id: 'Q-240124-C',
+      carrier: 'CMA CGM',
+      origin: 'SHA',
+      destination: 'LAX',
+      weight: 200,
+      totalCost: 1680,
+      surcharges: [{ name: 'BAF', amount: 160 }],
+      transitTime: '10 days',
+      status: 'flagged',
+      workflowStatus: 'analyzed',
+      reliabilityScore: 88,
+      timestamp: Date.now() - 10800000,
+      notes: []
+    }
+  ]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (navMenuRef.current && !navMenuRef.current.contains(event.target as Node)) {
+        setIsNavMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const addQuote = (newQuote: QuoteData) => {
+    setQuotes(prev => [newQuote, ...prev]);
+  };
+
+  const updateQuote = (updated: QuoteData) => {
+    setQuotes(prev => prev.map(q => q.id === updated.id ? updated : q));
+  };
+
+  const handleNavigate = (view: AppView) => {
+    onViewChange(view);
+    setIsNavMenuOpen(false);
+  };
+
+  const renderView = () => {
+    switch (currentView) {
+      case 'dashboard': return <DashboardHome quotes={quotes} onViewChange={onViewChange} onUpdateQuote={updateQuote} />;
+      case 'quotes': return <IntelligenceFeed quotes={quotes} onAddQuote={addQuote} onUpdateQuote={updateQuote} />;
+      case 'history': return <QuoteHistory quotes={quotes} />;
+      case 'analysis': return <LaneAnalysis quotes={quotes} />;
+      case 'team': return <TeamWorkspace />;
+      case 'billing': return <Billing />;
+      case 'settings': return <Settings />;
+      case 'support': return <Support />;
+      case 'studio': return <ImageStudio />;
+      case 'scorecards': return <CarrierScorecards quotes={quotes} />;
+      case 'privacy': return <PrivacyPolicy onBack={() => onViewChange('dashboard')} />;
+      case 'terms': return <TermsAndConditions onBack={() => onViewChange('dashboard')} />;
+      case 'cookies': return <CookiePolicy onBack={() => onViewChange('dashboard')} />;
+      default: return <DashboardHome quotes={quotes} onViewChange={onViewChange} onUpdateQuote={updateQuote} />;
+    }
+  };
+
+  return (
+    <div className="flex h-screen bg-[#0e121b] text-zinc-100 overflow-hidden">
+      <Sidebar 
+        currentView={currentView} 
+        onViewChange={onViewChange} 
+        isOpen={isSidebarOpen}
+        onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+      />
+
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+        <header className="h-16 px-8 flex items-center justify-between border-b border-zinc-800/50 bg-[#0e121b]/80 backdrop-blur-md z-50">
+          <div className="flex items-center gap-6">
+            <div className="relative" ref={navMenuRef}>
+              <button 
+                onClick={() => setIsNavMenuOpen(!isNavMenuOpen)}
+                className={`p-2 rounded-lg transition-all ${isNavMenuOpen ? 'bg-blue-600 text-white' : 'hover:bg-zinc-800 text-zinc-400'}`}
+              >
+                {isNavMenuOpen ? <X size={20} /> : <Menu size={20} />}
+              </button>
+              <AnimatePresence>
+                {isNavMenuOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    className="absolute top-full left-0 mt-3 w-72 bg-[#1a2133] border border-zinc-800 rounded-2xl shadow-2xl p-2 z-[60]"
+                  >
+                    <div className="px-4 py-3 border-b border-zinc-800/50 mb-2">
+                      <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Platform Command</span>
+                    </div>
+                    <div className="grid grid-cols-1 gap-1">
+                      {[
+                        { id: 'dashboard', label: 'Executive Dashboard', icon: <LayoutDashboard size={18} /> },
+                        { id: 'quotes', label: 'Review Queue (Ops)', icon: <FileText size={18} /> },
+                        { id: 'team', label: 'Team Workspace', icon: <Users size={18} /> },
+                        { id: 'history', label: 'Lane Memory', icon: <History size={18} /> },
+                        { id: 'scorecards', label: 'Scorecards', icon: <Award size={18} /> },
+                        { id: 'analysis', label: 'Analytics', icon: <BarChart2 size={18} /> },
+                        { id: 'settings', label: 'Settings', icon: <SettingsIcon size={18} /> },
+                        { id: 'privacy', label: 'Privacy Policy', icon: <Shield size={18} /> },
+                        { id: 'terms', label: 'Terms of Service', icon: <Scale size={18} /> },
+                        { id: 'cookies', label: 'Cookie Policy', icon: <Cookie size={18} /> },
+                        { id: 'support', label: 'Support', icon: <HelpCircle size={18} /> }
+                      ].map(item => (
+                        <button 
+                          key={item.id}
+                          onClick={() => handleNavigate(item.id as AppView)} 
+                          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${currentView === item.id ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'}`}
+                        >
+                          {item.icon} <span className="text-sm font-bold">{item.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+            <h1 className="text-xs font-black tracking-[0.2em] text-zinc-400 uppercase">
+              RateGuard Terminal
+            </h1>
+          </div>
+          <div className="flex items-center gap-4">
+            <button className="p-2 text-zinc-400 hover:text-white transition-colors relative">
+              <Bell size={18} />
+              <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-red-500 rounded-full" />
+            </button>
+            <div className="h-8 w-px bg-zinc-800 mx-2" />
+            <div className="flex items-center gap-3 pr-4">
+               <div className="text-right hidden sm:block">
+                  <div className="text-[10px] font-black text-zinc-200">JOHN DOE</div>
+                  <div className="text-[9px] font-bold text-zinc-500 uppercase">Manager</div>
+               </div>
+               <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-xs">JD</div>
+            </div>
+            <button onClick={onLogout} className="p-2 text-zinc-500 hover:text-red-500 transition-colors">
+              <LogOut size={18} />
+            </button>
+          </div>
+        </header>
+
+        <main className="flex-1 overflow-y-auto flex flex-col lg:flex-row bg-[#0e121b]">
+          <div className="flex-1 p-6 lg:p-10">
+            <AnimatePresence mode="wait">
+              <motion.div key={currentView} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
+                {renderView()}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+          {['dashboard', 'quotes', 'history'].includes(currentView) ? <ProfitGuardSidebar quotes={quotes} /> : null}
+        </main>
+      </div>
+    </div>
+  );
+};
+
+export default Dashboard;
