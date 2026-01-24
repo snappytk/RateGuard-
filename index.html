@@ -9,6 +9,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- PayPal SDK for Subscriptions -->
+    <script src="https://www.paypal.com/sdk/js?client-id=ATalLs1KyCnIJz9xtYCty5DqTxOxvGAAX6QpVPixJwomyuC8YJ-ouYRlUuuB8h5ah2PT4PQHEvIYPG9D&vault=true&intent=subscription" data-sdk-integration-source="button-factory"></script>
     <style>
       body {
         font-family: 'Inter', sans-serif;
@@ -23,6 +25,16 @@
       .glow-blue {
         box-shadow: 0 0 50px -12px rgba(59, 130, 246, 0.5);
       }
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 4px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #27272a;
+        border-radius: 10px;
+      }
     </style>
     <script type="importmap">
 {
@@ -33,7 +45,12 @@
     "recharts": "https://esm.sh/recharts@^3.7.0",
     "@google/genai": "https://esm.sh/@google/genai@^1.38.0",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "framer-motion": "https://esm.sh/framer-motion@^11.11.11"
+    "framer-motion": "https://esm.sh/framer-motion@^11.11.11",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.91.1",
+    "firebase/app": "https://esm.sh/firebase@10.8.0/app",
+    "firebase/auth": "https://esm.sh/firebase@10.8.0/auth",
+    "firebase/firestore": "https://esm.sh/firebase@10.8.0/firestore",
+    "firebase/": "https://esm.sh/firebase@^12.8.0/"
   }
 }
 </script>

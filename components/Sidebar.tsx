@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { NAVIGATION_ITEMS, SYSTEM_ITEMS } from '../constants';
 import { AppView } from '../types';
-import { ChevronLeft, ChevronRight, MoreHorizontal, LogOut } from 'lucide-react';
+import { ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface SidebarProps {
@@ -16,7 +16,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, isOpen, on
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
 
-  // Close more menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
@@ -32,13 +31,15 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, isOpen, on
     setIsMoreOpen(false);
   };
 
+  const initials = 'JD';
+  const userName = 'John Doe';
+
   return (
     <aside className={`
       bg-[#121826] border-r border-zinc-800 transition-all duration-300 relative z-50
       ${isOpen ? 'w-64' : 'w-20'}
       hidden lg:flex flex-col
     `}>
-      {/* Brand Header */}
       <div className="h-20 flex items-center px-6 border-b border-zinc-800/30">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center font-black italic shadow-lg shadow-blue-500/20 shrink-0">R</div>
@@ -46,7 +47,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, isOpen, on
         </div>
       </div>
 
-      {/* Primary Navigation */}
       <nav className="flex-1 py-8 px-3 space-y-1">
         {isOpen && (
           <div className="px-3 mb-4 text-[10px] font-bold text-zinc-600 uppercase tracking-[0.2em]">Operations</div>
@@ -70,7 +70,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, isOpen, on
         ))}
       </nav>
 
-      {/* Footer / More Section */}
       <div className="p-3 mt-auto space-y-1 relative" ref={moreMenuRef}>
         <AnimatePresence>
           {isMoreOpen && (
@@ -114,24 +113,18 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, isOpen, on
         >
           <MoreHorizontal size={18} className="shrink-0" />
           {isOpen && <span className="text-sm">More Options</span>}
-          {isOpen && (
-             <div className="ml-auto">
-                <div className={`w-1 h-1 rounded-full bg-blue-500 ${isMoreOpen ? 'opacity-100' : 'opacity-0'}`} />
-             </div>
-          )}
         </button>
 
         <div className="h-px bg-zinc-800/50 my-2 mx-3" />
 
-        {/* Profile / User Section */}
         <div className={`flex items-center gap-3 px-3 py-3 rounded-xl bg-zinc-900/40 border border-zinc-800/30`}>
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center font-bold text-[10px] text-white shrink-0 shadow-lg">
-            JD
+            {initials}
           </div>
           {isOpen && (
             <div className="flex flex-col min-w-0">
-              <span className="text-[11px] font-bold text-zinc-200 truncate">John Doe</span>
-              <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-tighter truncate">Forwarder Lead</span>
+              <span className="text-[11px] font-bold text-zinc-200 truncate">{userName}</span>
+              <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-tighter truncate">Enterprise User</span>
             </div>
           )}
         </div>

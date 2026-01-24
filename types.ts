@@ -37,7 +37,13 @@ export interface LaneTrend {
   history: Array<{ date: string; rate: number }>;
 }
 
-export type AppView = 'landing' | 'dashboard' | 'quotes' | 'history' | 'analysis' | 'settings' | 'billing' | 'studio' | 'support' | 'scorecards' | 'team' | 'privacy' | 'terms' | 'cookies';
+export interface CompanyProfile {
+  name: string;
+  profitGoal: number; // Percentage
+  currency: string;
+}
+
+export type AppView = 'landing' | 'onboarding' | 'dashboard' | 'quotes' | 'history' | 'analysis' | 'settings' | 'billing' | 'studio' | 'support' | 'scorecards' | 'team' | 'privacy' | 'terms' | 'cookies' | 'payment';
 
 export enum ImageSize {
   K1 = '1K',

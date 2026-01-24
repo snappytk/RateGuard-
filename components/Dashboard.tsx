@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   LogOut, Bell, Menu, X, LayoutDashboard, Settings as SettingsIcon, 
   HelpCircle, ChevronRight, FileText, History, Users, Award, BarChart2,
-  Shield, Scale, Cookie
+  Shield, Scale, Cookie, CreditCard, ChevronLeft
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Sidebar from './Sidebar';
@@ -21,6 +21,7 @@ import ProfitGuardSidebar from './ProfitGuardSidebar';
 import PrivacyPolicy from './PrivacyPolicy';
 import TermsAndConditions from './TermsAndConditions';
 import CookiePolicy from './CookiePolicy';
+import PaymentPage from './PaymentPage';
 import { AppView, QuoteData } from '../types';
 
 interface DashboardProps {
@@ -64,21 +65,6 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
       reliabilityScore: 65,
       timestamp: Date.now() - 10800000,
       notes: [{ id: '1', user: 'Processor', text: 'Cheapest option, but reliability is flagging.', timestamp: Date.now() }]
-    },
-    {
-      id: 'Q-240124-C',
-      carrier: 'CMA CGM',
-      origin: 'SHA',
-      destination: 'LAX',
-      weight: 200,
-      totalCost: 1680,
-      surcharges: [{ name: 'BAF', amount: 160 }],
-      transitTime: '10 days',
-      status: 'flagged',
-      workflowStatus: 'analyzed',
-      reliabilityScore: 88,
-      timestamp: Date.now() - 10800000,
-      notes: []
     }
   ]);
 
@@ -112,7 +98,8 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
       case 'history': return <QuoteHistory quotes={quotes} />;
       case 'analysis': return <LaneAnalysis quotes={quotes} />;
       case 'team': return <TeamWorkspace />;
-      case 'billing': return <Billing />;
+      case 'billing': return <Billing onViewChange={onViewChange} />;
+      case 'payment': return <PaymentPage />;
       case 'settings': return <Settings />;
       case 'support': return <Support />;
       case 'studio': return <ImageStudio />;
@@ -158,6 +145,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
                       {[
                         { id: 'dashboard', label: 'Executive Dashboard', icon: <LayoutDashboard size={18} /> },
                         { id: 'quotes', label: 'Review Queue (Ops)', icon: <FileText size={18} /> },
+                        { id: 'payment', label: 'Subscription Activation', icon: <CreditCard size={18} /> },
                         { id: 'team', label: 'Team Workspace', icon: <Users size={18} /> },
                         { id: 'history', label: 'Lane Memory', icon: <History size={18} /> },
                         { id: 'scorecards', label: 'Scorecards', icon: <Award size={18} /> },
@@ -182,24 +170,21 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
               </AnimatePresence>
             </div>
             <h1 className="text-xs font-black tracking-[0.2em] text-zinc-400 uppercase">
-              RateGuard Terminal
+              Operational Terminal
             </h1>
           </div>
           <div className="flex items-center gap-4">
+            <button onClick={() => onViewChange('payment')} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-[10px] font-black uppercase tracking-widest text-white transition-all hidden sm:block">
+              Activate Defense
+            </button>
             <button className="p-2 text-zinc-400 hover:text-white transition-colors relative">
               <Bell size={18} />
               <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-red-500 rounded-full" />
             </button>
             <div className="h-8 w-px bg-zinc-800 mx-2" />
-            <div className="flex items-center gap-3 pr-4">
-               <div className="text-right hidden sm:block">
-                  <div className="text-[10px] font-black text-zinc-200">JOHN DOE</div>
-                  <div className="text-[9px] font-bold text-zinc-500 uppercase">Manager</div>
-               </div>
-               <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-xs">JD</div>
-            </div>
-            <button onClick={onLogout} className="p-2 text-zinc-500 hover:text-red-500 transition-colors">
-              <LogOut size={18} />
+            <button onClick={onLogout} className="flex items-center gap-2 px-4 py-2 text-zinc-500 hover:text-white transition-colors text-[10px] font-black uppercase tracking-widest">
+              <ChevronLeft size={16} />
+              Landing
             </button>
           </div>
         </header>
