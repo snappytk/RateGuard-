@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Shield, ChevronLeft, Mail, Lock, Globe, FileText } from 'lucide-react';
+import { Shield, ChevronLeft, Mail, Lock, Globe, FileText, User } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 interface PrivacyPolicyProps {
@@ -134,8 +134,5 @@ const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ onBack }) => {
     </div>
   );
 };
-
-// Re-importing User icon specifically for this component as it's needed
-import { User } from 'lucide-react';
 
 export default PrivacyPolicy;
