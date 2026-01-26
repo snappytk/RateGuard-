@@ -1,10 +1,47 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { MessageCircle, BookOpen, Mail, Phone, ExternalLink, Sparkles, Loader2, Send } from 'lucide-react';
+import { chatWithAtlas } from '../services/gemini';
 
 const Support: React.FC = () => {
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [chatMessage, setChatMessage] = useState('');
+  const [chatHistory, setChatHistory] = useState<Array<{role: string, text: string}>>([
+    { role: 'model', text: "Hello! I'm Atlas, your RateGuard AI assistant. Ask me anything about surcharges, carrier lanes, or platform usage." }
+  ]);
+  const [isTyping, setIsTyping] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [chatHistory, isAssistantOpen]);
+
+  const handleSendMessage = async () => {
+    if (!chatMessage.trim()) return;
+
+    const userMsg = chatMessage;
+    setChatMessage('');
+    setChatHistory(prev => [...prev, { role: 'user', text: userMsg }]);
+    setIsTyping(true);
+
+    try {
+      // Transform history for Gemini API (excluding current message which is sent as 'message')
+      const apiHistory = chatHistory.map(msg => ({
+        role: msg.role === 'model' ? 'model' : 'user',
+        parts: [{ text: msg.text }]
+      }));
+
+      const responseText = await chatWithAtlas(userMsg, apiHistory);
+      setChatHistory(prev => [...prev, { role: 'model', text: responseText || "I'm having trouble connecting to the neural net." }]);
+    } catch (error) {
+      console.error(error);
+      setChatHistory(prev => [...prev, { role: 'model', text: "Connection to Atlas interrupted. Please try again." }]);
+    } finally {
+      setIsTyping(false);
+    }
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500">
@@ -20,7 +57,7 @@ const Support: React.FC = () => {
       </div>
 
       {/* AI Assistant Banner */}
-      <div className={`relative group overflow-hidden bg-gradient-to-r from-blue-600 to-indigo-700 rounded-[2.5rem] transition-all duration-700 p-10 shadow-2xl shadow-blue-500/20 ${isAssistantOpen ? 'h-[500px]' : 'h-auto'}`}>
+      <div className={`relative group overflow-hidden bg-gradient-to-r from-blue-600 to-indigo-700 rounded-[2.5rem] transition-all duration-700 p-10 shadow-2xl shadow-blue-500/20 ${isAssistantOpen ? 'h-[600px]' : 'h-auto'}`}>
         <div className="absolute top-0 right-0 p-10 opacity-10 group-hover:scale-110 transition-transform duration-1000">
           <Sparkles size={160} />
         </div>
@@ -60,16 +97,24 @@ const Support: React.FC = () => {
                </button>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-4 bg-black/20 rounded-2xl border border-white/10 space-y-4">
-               <div className="max-w-[80%] bg-white/10 rounded-2xl rounded-tl-none p-4 text-sm text-blue-100">
-                 Hello! I'm Atlas, your RateGuard AI assistant. Ask me anything about surcharges, carrier lanes, or platform usage.
-               </div>
-               <div className="max-w-[80%] ml-auto bg-blue-500/40 rounded-2xl rounded-tr-none p-4 text-sm text-white border border-white/10">
-                 How do I calculate fuel surcharge deviation?
-               </div>
-               <div className="flex items-center gap-3 text-white/40 italic text-xs px-2">
-                 <Loader2 size={12} className="animate-spin" /> Atlas is thinking...
-               </div>
+            <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 bg-black/20 rounded-2xl border border-white/10 space-y-4 custom-scrollbar">
+               {chatHistory.map((msg, i) => (
+                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                   <div className={`max-w-[80%] p-4 text-sm ${
+                     msg.role === 'user' 
+                       ? 'bg-blue-500/40 rounded-2xl rounded-tr-none text-white border border-white/10' 
+                       : 'bg-white/10 rounded-2xl rounded-tl-none text-blue-100'
+                   }`}>
+                     {msg.text}
+                   </div>
+                 </div>
+               ))}
+               
+               {isTyping && (
+                 <div className="flex items-center gap-3 text-white/40 italic text-xs px-2">
+                   <Loader2 size={12} className="animate-spin" /> Atlas is processing...
+                 </div>
+               )}
             </div>
 
             <div className="relative">
@@ -77,10 +122,14 @@ const Support: React.FC = () => {
                  type="text" 
                  value={chatMessage}
                  onChange={(e) => setChatMessage(e.target.value)}
+                 onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
                  placeholder="Type your question for Atlas..."
                  className="w-full bg-white/10 border border-white/20 rounded-2xl py-4 pl-6 pr-16 text-white placeholder:text-blue-200/50 outline-none focus:bg-white/20 transition-all"
                />
-               <button className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-white text-blue-600 rounded-xl flex items-center justify-center hover:scale-105 transition-all">
+               <button 
+                onClick={handleSendMessage}
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-white text-blue-600 rounded-xl flex items-center justify-center hover:scale-105 transition-all"
+               >
                   <Send size={18} />
                </button>
             </div>

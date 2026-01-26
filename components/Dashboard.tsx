@@ -23,6 +23,7 @@ import TermsAndConditions from './TermsAndConditions';
 import CookiePolicy from './CookiePolicy';
 import PaymentPage from './PaymentPage';
 import { AppView, QuoteData, UserProfile } from '../types';
+import { fetchUserQuotes } from '../services/firebase';
 
 interface DashboardProps {
   currentView: AppView;
@@ -37,23 +38,18 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
   const [isNavMenuOpen, setIsNavMenuOpen] = useState(false);
   const navMenuRef = useRef<HTMLDivElement>(null);
 
-  const [quotes, setQuotes] = useState<QuoteData[]>([
-    {
-      id: 'Q-240124-A',
-      carrier: 'Maersk',
-      origin: 'SHA',
-      destination: 'LAX',
-      weight: 200,
-      totalCost: 1450,
-      surcharges: [{ name: 'BAF', amount: 150 }],
-      transitTime: '10 days',
-      status: 'optimal',
-      workflowStatus: 'approved',
-      reliabilityScore: 92,
-      timestamp: Date.now() - 7200000,
-      notes: []
-    }
-  ]);
+  // Initialize with empty array, fetch real data
+  const [quotes, setQuotes] = useState<QuoteData[]>([]);
+
+  useEffect(() => {
+    const loadData = async () => {
+      if (userProfile?.uid) {
+        const userQuotes = await fetchUserQuotes(userProfile.uid);
+        setQuotes(userQuotes);
+      }
+    };
+    loadData();
+  }, [userProfile?.uid]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -87,7 +83,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
       case 'team': return <TeamWorkspace />;
       case 'billing': return <Billing onViewChange={onViewChange} />;
       case 'payment': return <PaymentPage />;
-      case 'settings': return <Settings />;
+      case 'settings': return <Settings userProfile={userProfile} onProfileUpdate={onProfileUpdate} />;
       case 'support': return <Support />;
       case 'studio': return <ImageStudio />;
       case 'scorecards': return <CarrierScorecards quotes={quotes} />;

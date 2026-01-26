@@ -21,7 +21,11 @@ import {
   collection, 
   addDoc,
   serverTimestamp,
-  increment
+  increment,
+  query,
+  where,
+  orderBy,
+  getDocs
 } from "firebase/firestore";
 import { UserProfile, QuoteData } from "../types";
 
@@ -62,8 +66,8 @@ export const initializeUserProfile = async (user: FirebaseUser) => {
     };
 
     const defaultSettings = {
-      preferredCurrency: "USD",
-      theme: "dark",
+      profitThreshold: 15,
+      autoAudit: true,
       notifications: { email: true }
     };
 
@@ -159,6 +163,25 @@ export const syncUserToFirestore = async (user: FirebaseUser): Promise<UserProfi
   }
 };
 
+export const fetchUserQuotes = async (userId: string): Promise<QuoteData[]> => {
+  try {
+    const q = query(
+      collection(db, "quotes"),
+      where("userId", "==", userId),
+      orderBy("createdAt", "desc")
+    );
+    const querySnapshot = await getDocs(q);
+    const quotes: QuoteData[] = [];
+    querySnapshot.forEach((doc) => {
+      quotes.push({ id: doc.id, ...doc.data() } as QuoteData);
+    });
+    return quotes;
+  } catch (error) {
+    console.error("Error fetching quotes:", error);
+    return [];
+  }
+};
+
 export const saveQuoteToFirestore = async (userId: string, quoteData: Partial<QuoteData>, pdfBase64: string, geminiRaw: any) => {
   try {
     const quoteSize = new Blob([pdfBase64]).size;
@@ -176,10 +199,11 @@ export const saveQuoteToFirestore = async (userId: string, quoteData: Partial<Qu
       totalAmount: quoteData.totalCost || 0,
       totalCost: quoteData.totalCost || 0,
       surcharges: quoteData.surcharges || [],
+      transitTime: quoteData.transitTime || 'N/A',
       pdfBase64,
       geminiRaw,
       createdAt: Date.now(),
-      reliabilityScore: 85,
+      reliabilityScore: Math.floor(Math.random() * (99 - 70 + 1) + 70), // Mock score until API V3
       notes: []
     };
 
@@ -226,6 +250,31 @@ export const updateComplianceProfile = async (userId: string, data: { country: s
     taxID: data.taxID,
     companyName: data.companyName
   });
+};
+
+export const fetchUserSettings = async (userId: string) => {
+  try {
+    const snap = await getDoc(doc(db, "settings", userId));
+    return snap.exists() ? snap.data() : null;
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+};
+
+export const updateUserSettings = async (userId: string, settings: any) => {
+  try {
+    await updateDoc(doc(db, "settings", userId), settings);
+    return true;
+  } catch (error) {
+    console.error(error);
+    return false;
+  }
+};
+
+export const updateUserProfileData = async (userId: string, data: Partial<UserProfile>) => {
+  const userRef = doc(db, "users", userId);
+  await updateDoc(userRef, data);
 };
 
 export const logAnalyticsEvent = (name: string, params: any) => {

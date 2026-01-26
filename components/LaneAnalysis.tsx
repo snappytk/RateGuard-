@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { 
   BarChart, 
   Bar, 
@@ -8,35 +8,66 @@ import {
   CartesianGrid, 
   Tooltip, 
   ResponsiveContainer, 
-  LineChart, 
-  Line,
   AreaChart,
-  Area
+  Area,
+  Line
 } from 'recharts';
 import { QuoteData } from '../types';
 
-const data = [
-  { name: 'Jan', rate: 4000, target: 4100 },
-  { name: 'Feb', rate: 4500, target: 4100 },
-  { name: 'Mar', rate: 3800, target: 4100 },
-  { name: 'Apr', rate: 5100, target: 4100 },
-  { name: 'May', rate: 4800, target: 4100 },
-  { name: 'Jun', rate: 4200, target: 4100 },
-];
-
 const LaneAnalysis: React.FC<{ quotes: QuoteData[] }> = ({ quotes }) => {
+  
+  // Aggregate Cost Trend by Month
+  const trendData = useMemo(() => {
+    if (quotes.length === 0) return [];
+
+    const grouped: Record<string, { total: number, count: number }> = {};
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    quotes.forEach(q => {
+       const date = new Date(q.createdAt);
+       const month = months[date.getMonth()];
+       if (!grouped[month]) grouped[month] = { total: 0, count: 0 };
+       grouped[month].total += q.totalCost;
+       grouped[month].count += 1;
+    });
+
+    return Object.keys(grouped).map(key => ({
+      name: key,
+      rate: Math.round(grouped[key].total / grouped[key].count),
+      target: 4000 // Hypothetical static target for now
+    }));
+  }, [quotes]);
+
+  // Carrier Distribution
+  const carrierData = useMemo(() => {
+     const counts: Record<string, number> = {};
+     quotes.forEach(q => {
+        counts[q.carrier] = (counts[q.carrier] || 0) + 1;
+     });
+     return Object.keys(counts).map(k => ({ name: k, rate: counts[k] }));
+  }, [quotes]);
+
+  if (quotes.length === 0) {
+     return (
+        <div className="flex flex-col items-center justify-center min-h-[400px] bg-zinc-900/40 rounded-[2.5rem] border border-zinc-800/50">
+           <h3 className="text-xl font-bold text-zinc-400">No Analytics Available</h3>
+           <p className="text-zinc-600 text-sm mt-2">Upload quotes to generate live market insights.</p>
+        </div>
+     );
+  }
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 space-y-6">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-bold">SHA - LGB Index Trend</h3>
-            <div className="px-2 py-1 bg-emerald-500/10 text-emerald-500 text-[10px] font-bold uppercase rounded">Updated 5m ago</div>
+            <h3 className="text-lg font-bold">Cost Analysis (Avg)</h3>
+            <div className="px-2 py-1 bg-emerald-500/10 text-emerald-500 text-[10px] font-bold uppercase rounded">Live Data</div>
           </div>
           
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data}>
+              <AreaChart data={trendData}>
                 <defs>
                   <linearGradient id="colorRate" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
@@ -58,10 +89,10 @@ const LaneAnalysis: React.FC<{ quotes: QuoteData[] }> = ({ quotes }) => {
         </div>
 
         <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 space-y-6">
-          <h3 className="text-lg font-bold">Carrier Distribution</h3>
+          <h3 className="text-lg font-bold">Carrier Volume</h3>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data}>
+              <BarChart data={carrierData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
                 <XAxis dataKey="name" stroke="#52525b" fontSize={12} tickLine={false} axisLine={false} />
                 <YAxis stroke="#52525b" fontSize={12} tickLine={false} axisLine={false} />
@@ -86,30 +117,22 @@ const LaneAnalysis: React.FC<{ quotes: QuoteData[] }> = ({ quotes }) => {
             <thead>
               <tr className="border-b border-zinc-800">
                 <th className="p-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Lane Pair</th>
-                <th className="p-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Current Market</th>
-                <th className="p-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Avg. Quote</th>
-                <th className="p-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Delta</th>
-                <th className="p-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Volume Status</th>
+                <th className="p-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Quote Count</th>
+                <th className="p-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Avg. Cost</th>
+                <th className="p-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Status</th>
               </tr>
             </thead>
             <tbody>
-              {[
-                { pair: 'Shanghai → Los Angeles', market: '$4,200', avg: '$4,450', delta: '+5.9%', status: 'High' },
-                { pair: 'Singapore → Rotterdam', market: '$2,100', avg: '$2,050', delta: '-2.4%', status: 'Optimal' },
-                { pair: 'Mumbai → Savannah', market: '$5,800', avg: '$6,120', delta: '+5.5%', status: 'Flagged' },
-              ].map((l, i) => (
+              {quotes.slice(0, 5).map((q, i) => (
                 <tr key={i} className="border-b border-zinc-800/50 hover:bg-zinc-800/20 transition-colors">
-                  <td className="p-6 text-sm font-bold">{l.pair}</td>
-                  <td className="p-6 text-sm font-mono text-zinc-400">{l.market}</td>
-                  <td className="p-6 text-sm font-mono text-zinc-100">{l.avg}</td>
-                  <td className={`p-6 text-sm font-bold ${l.delta.startsWith('+') ? 'text-red-500' : 'text-emerald-500'}`}>
-                    {l.delta}
-                  </td>
+                  <td className="p-6 text-sm font-bold">{q.origin} → {q.destination}</td>
+                  <td className="p-6 text-sm font-mono text-zinc-400">1</td>
+                  <td className="p-6 text-sm font-mono text-zinc-100">${q.totalCost}</td>
                   <td className="p-6">
                     <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
-                      l.status === 'Flagged' ? 'bg-red-500/10 text-red-500' : 'bg-blue-500/10 text-blue-500'
+                      q.totalCost > 2000 ? 'bg-red-500/10 text-red-500' : 'bg-blue-500/10 text-blue-500'
                     }`}>
-                      {l.status}
+                      {q.totalCost > 2000 ? 'High' : 'Optimal'}
                     </span>
                   </td>
                 </tr>

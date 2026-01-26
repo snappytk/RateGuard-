@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 
 // Use process.env.API_KEY directly and ensure initialization follows naming requirements
@@ -43,6 +44,20 @@ export const extractQuoteData = async (imageBase64: string) => {
 
   // response.text is a property, not a method
   return JSON.parse(response.text || '{}');
+};
+
+export const chatWithAtlas = async (message: string, history: {role: string, parts: {text: string}[]}[] = []) => {
+  const ai = getAI();
+  const chat = ai.chats.create({
+    model: 'gemini-3-flash-preview',
+    config: {
+      systemInstruction: "You are Atlas, a specialized logistics AI assistant for RateGuard. You help freight forwarders understand surcharges (BAF, CAF, PSS), explain incoterms, and troubleshoot the RateGuard platform. Keep answers professional, concise, and helpful."
+    },
+    history: history
+  });
+
+  const response = await chat.sendMessage({ message });
+  return response.text;
 };
 
 export const editImageWithAI = async (imageBase64: string, prompt: string) => {

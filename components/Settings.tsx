@@ -1,21 +1,67 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Save, User, Bell, Shield, Cpu, Sliders, Check } from 'lucide-react';
+import { UserProfile } from '../types';
+import { updateUserSettings, fetchUserSettings, updateUserProfileData } from '../services/firebase';
 
-const Settings: React.FC = () => {
-  const [threshold, setThreshold] = useState(10);
+interface SettingsProps {
+  userProfile: UserProfile | null;
+  onProfileUpdate?: (updates: Partial<UserProfile>) => void;
+}
+
+const Settings: React.FC<SettingsProps> = ({ userProfile, onProfileUpdate }) => {
+  const [threshold, setThreshold] = useState(15);
   const [autoAudit, setAutoAudit] = useState(true);
+  const [displayName, setDisplayName] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  
   const [isSaving, setIsSaving] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
-  const handleSave = () => {
+  useEffect(() => {
+    if (userProfile) {
+      setDisplayName(userProfile.displayName || '');
+      setCompanyName(userProfile.companyName || '');
+      
+      const loadSettings = async () => {
+        const settings = await fetchUserSettings(userProfile.uid);
+        if (settings) {
+          if (settings.profitThreshold) setThreshold(settings.profitThreshold);
+          if (settings.autoAudit !== undefined) setAutoAudit(settings.autoAudit);
+        }
+      };
+      loadSettings();
+    }
+  }, [userProfile]);
+
+  const handleSave = async () => {
+    if (!userProfile) return;
     setIsSaving(true);
-    // Mock API call
-    setTimeout(() => {
-      setIsSaving(false);
+    
+    try {
+      // Update Settings Collection
+      await updateUserSettings(userProfile.uid, {
+        profitThreshold: threshold,
+        autoAudit: autoAudit,
+      });
+
+      // Update User Profile Collection
+      await updateUserProfileData(userProfile.uid, {
+        displayName: displayName,
+        companyName: companyName
+      });
+
+      if (onProfileUpdate) {
+        onProfileUpdate({ displayName, companyName });
+      }
+
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 3000);
-    }, 1200);
+    } catch (err) {
+      console.error("Failed to save settings", err);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -73,17 +119,32 @@ const Settings: React.FC = () => {
               <h3 className="text-lg font-bold text-white">Operator Profile</h3>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">First Name</label>
-                <input type="text" defaultValue="John" className="w-full bg-[#0e121b] border border-zinc-800 rounded-lg px-4 py-2 text-sm outline-none focus:border-blue-500/50 text-white" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Last Name</label>
-                <input type="text" defaultValue="Doe" className="w-full bg-[#0e121b] border border-zinc-800 rounded-lg px-4 py-2 text-sm outline-none focus:border-blue-500/50 text-white" />
+              <div className="space-y-2 col-span-2">
+                <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Display Name</label>
+                <input 
+                  type="text" 
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  className="w-full bg-[#0e121b] border border-zinc-800 rounded-lg px-4 py-2 text-sm outline-none focus:border-blue-500/50 text-white" 
+                />
               </div>
               <div className="col-span-2 space-y-2">
-                <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Business Email</label>
-                <input type="email" defaultValue="j.doe@logistics-corp.com" className="w-full bg-[#0e121b] border border-zinc-800 rounded-lg px-4 py-2 text-sm outline-none focus:border-blue-500/50 text-white" />
+                <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Company Name</label>
+                <input 
+                  type="text"
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  className="w-full bg-[#0e121b] border border-zinc-800 rounded-lg px-4 py-2 text-sm outline-none focus:border-blue-500/50 text-white" 
+                />
+              </div>
+              <div className="col-span-2 space-y-2">
+                <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Email (Immutable)</label>
+                <input 
+                  type="email" 
+                  value={userProfile?.email || ''} 
+                  disabled 
+                  className="w-full bg-[#0e121b] border border-zinc-800 rounded-lg px-4 py-2 text-sm outline-none text-zinc-500 cursor-not-allowed" 
+                />
               </div>
             </div>
           </section>
@@ -95,7 +156,7 @@ const Settings: React.FC = () => {
               <Shield size={16} /> Security Sync
             </h4>
             <p className="text-xs text-zinc-500 leading-relaxed font-medium">
-              Last security audit: <span className="text-emerald-500">Today, 09:12 AM</span>. Your data is encrypted with AES-256 standard.
+              Last security audit: <span className="text-emerald-500">Today</span>. Your data is encrypted with AES-256 standard.
             </p>
             <button className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 text-xs font-bold rounded-lg transition-colors text-zinc-300">
               Reset Security Keys
