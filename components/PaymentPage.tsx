@@ -15,47 +15,40 @@ const PaymentPage: React.FC = () => {
 
     const renderPaypalButton = () => {
       const paypal = (window as any).paypal;
-      const containerId = 'paypal-button-container';
+      // Updated container ID for the specific plan
+      const containerId = 'paypal-button-container-P-1UB7789392647964ANF3SL4I';
       const container = document.getElementById(containerId);
 
       if (paypal && container && container.innerHTML === '') {
         paypal.Buttons({
           style: {
             shape: 'rect',
-            color: 'blue',
+            color: 'gold', // Changed to gold as per snippet
             layout: 'vertical',
-            label: 'pay'
+            label: 'subscribe'
           },
-          createOrder: function(data: any, actions: any) {
-            // Enterprise Tier: $200 + 15.5% Tax = $231.00 Total
-            return actions.order.create({
-              purchase_units: [{
-                amount: {
-                  value: '231.00',
-                  breakdown: {
-                    item_total: { value: '200.00', currency_code: 'USD' },
-                    tax_total: { value: '31.00', currency_code: 'USD' }
-                  }
-                },
-                description: 'RateGuard Enterprise License (Inc. Tax)'
-              }]
+          createSubscription: function(data: any, actions: any) {
+            return actions.subscription.create({
+              /* Creates the subscription */
+              plan_id: 'P-1UB7789392647964ANF3SL4I'
             });
           },
           onApprove: function(data: any, actions: any) {
             setIsProcessing(true);
-            return actions.order.capture().then(async function(details: any) {
-              if (uid) {
-                // Record Transaction and Upgrade User
-                const upgraded = await processEnterpriseUpgrade(uid, details.id);
-                if (upgraded) {
-                  setSuccess(true);
-                  alert('Enterprise License Activated. Welcome to RateGuard Elite.');
-                  // Redirect or refresh logic would happen here in a full router context
-                  window.location.reload(); 
-                }
-              }
-              setIsProcessing(false);
-            });
+            // data.subscriptionID contains the new subscription ID
+            if (uid && data.subscriptionID) {
+               // We pass the subscription ID as the transaction ID reference
+               processEnterpriseUpgrade(uid, data.subscriptionID).then((upgraded) => {
+                 if (upgraded) {
+                   setSuccess(true);
+                   alert('Enterprise License Activated. Subscription ID: ' + data.subscriptionID);
+                   window.location.reload(); 
+                 }
+                 setIsProcessing(false);
+               });
+            } else {
+               setIsProcessing(false);
+            }
           }
         }).render('#' + containerId);
       }
@@ -158,8 +151,8 @@ const PaymentPage: React.FC = () => {
             <div className="text-center text-[10px] font-black text-zinc-400 uppercase tracking-widest">
               Secure Checkout via PayPal
             </div>
-            {/* PayPal Button Container */}
-            <div id="paypal-button-container" className="min-h-[150px]"></div>
+            {/* PayPal Button Container - ID Must Match Render Call */}
+            <div id="paypal-button-container-P-1UB7789392647964ANF3SL4I" className="min-h-[150px]"></div>
           </div>
 
           <div className="flex items-center justify-center gap-2 text-[9px] font-black text-zinc-400 uppercase tracking-widest pt-4 border-t border-zinc-100">

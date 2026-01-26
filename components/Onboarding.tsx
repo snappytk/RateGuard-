@@ -88,8 +88,20 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                       className="w-full bg-zinc-900/50 border border-zinc-800 rounded-2xl py-4 px-6 text-sm text-white outline-none"
                     >
                       <option value="US">United States</option>
+                      <option value="GB">United Kingdom</option>
                       <option value="ZW">Zimbabwe</option>
-                      <option value="UK">United Kingdom</option>
+                      <option value="DE">Germany</option>
+                      <option value="FR">France</option>
+                      <option value="CA">Canada</option>
+                      <option value="AU">Australia</option>
+                      <option value="CN">China</option>
+                      <option value="JP">Japan</option>
+                      <option value="IN">India</option>
+                      <option value="ZA">South Africa</option>
+                      <option value="BR">Brazil</option>
+                      <option value="AE">United Arab Emirates</option>
+                      <option value="SG">Singapore</option>
+                      <option value="NL">Netherlands</option>
                     </select>
                  </div>
                  <div className="space-y-2">
@@ -120,23 +132,46 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                 <h2 className="text-3xl font-black text-white tracking-tighter uppercase flex items-center gap-4">
                   <Target className="text-blue-500" /> Profit Logic
                 </h2>
-                <p className="text-zinc-500 text-sm font-medium">Define your target margin to power Profit Guard™ alerts.</p>
+                <p className="text-zinc-500 text-sm font-medium">Define your base currency and target margin.</p>
               </div>
+              
               <div className="space-y-6">
-                <div className="flex justify-between items-center">
-                  <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Target Margin (%)</label>
-                  <span className="text-2xl font-black text-blue-500 font-mono">{formData.profitGoal}%</span>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Operational Currency</label>
+                  <div className="grid grid-cols-3 gap-3">
+                    {['USD', 'GBP', 'EUR'].map(curr => (
+                      <button
+                        key={curr}
+                        onClick={() => setFormData({...formData, currency: curr})}
+                        className={`py-3 rounded-xl text-xs font-black transition-all border ${
+                          formData.currency === curr 
+                          ? 'bg-blue-600 border-blue-500 text-white shadow-lg' 
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:bg-zinc-800'
+                        }`}
+                      >
+                        {curr}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <input 
-                  type="range"
-                  min="5"
-                  max="50"
-                  step="1"
-                  value={formData.profitGoal}
-                  onChange={e => setFormData({ ...formData, profitGoal: parseInt(e.target.value) })}
-                  className="w-full h-2 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-blue-500 shadow-inner"
-                />
+
+                <div className="space-y-4 pt-4 border-t border-zinc-800/50">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Target Margin (%)</label>
+                    <span className="text-2xl font-black text-blue-500 font-mono">{formData.profitGoal}%</span>
+                  </div>
+                  <input 
+                    type="range"
+                    min="5"
+                    max="50"
+                    step="1"
+                    value={formData.profitGoal}
+                    onChange={e => setFormData({ ...formData, profitGoal: parseInt(e.target.value) })}
+                    className="w-full h-2 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-blue-500 shadow-inner"
+                  />
+                </div>
               </div>
+
               <div className="flex gap-4">
                 <button onClick={prevStep} className="flex-1 py-5 bg-zinc-900 text-zinc-500 font-black uppercase text-xs tracking-widest rounded-2xl border border-zinc-800">Back</button>
                 <button onClick={nextStep} className="flex-1 py-5 bg-white text-[#0e121b] font-black uppercase text-xs tracking-widest rounded-2xl">Confirm</button>
@@ -165,6 +200,10 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                  <div className="flex justify-between text-xs">
                     <span className="text-zinc-500">Tax Identity:</span>
                     <span className="text-white font-bold font-mono">{formData.taxID}</span>
+                 </div>
+                 <div className="flex justify-between text-xs">
+                    <span className="text-zinc-500">Base Currency:</span>
+                    <span className="text-white font-bold font-mono">{formData.currency}</span>
                  </div>
               </div>
 
