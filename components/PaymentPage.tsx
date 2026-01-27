@@ -15,47 +15,57 @@ const PaymentPage: React.FC = () => {
 
     const renderPaypalButton = () => {
       const paypal = (window as any).paypal;
-      // Updated container ID for the specific plan
+      // Updated container ID matching the provided snippet
       const containerId = 'paypal-button-container-P-1UB7789392647964ANF3SL4I';
+      const planId = 'P-1UB7789392647964ANF3SL4I';
+      
+      // Ensure container exists before rendering
       const container = document.getElementById(containerId);
 
       if (paypal && container && container.innerHTML === '') {
-        paypal.Buttons({
-          style: {
-            shape: 'rect',
-            color: 'gold', // Changed to gold as per snippet
-            layout: 'vertical',
-            label: 'subscribe'
-          },
-          createSubscription: function(data: any, actions: any) {
-            return actions.subscription.create({
-              /* Creates the subscription */
-              plan_id: 'P-1UB7789392647964ANF3SL4I'
-            });
-          },
-          onApprove: function(data: any, actions: any) {
-            setIsProcessing(true);
-            // data.subscriptionID contains the new subscription ID
-            if (uid && data.subscriptionID) {
-               // We pass the subscription ID as the transaction ID reference
-               processEnterpriseUpgrade(uid, data.subscriptionID).then((upgraded) => {
-                 if (upgraded) {
-                   setSuccess(true);
-                   alert('Enterprise License Activated. Subscription ID: ' + data.subscriptionID);
-                   window.location.reload(); 
-                 }
+        try {
+          paypal.Buttons({
+            style: {
+              shape: 'rect',
+              color: 'gold',
+              layout: 'vertical',
+              label: 'subscribe'
+            },
+            createSubscription: function(data: any, actions: any) {
+              return actions.subscription.create({
+                /* Creates the subscription */
+                plan_id: planId
+              });
+            },
+            onApprove: function(data: any, actions: any) {
+              setIsProcessing(true);
+              // data.subscriptionID contains the new subscription ID
+              if (uid && data.subscriptionID) {
+                 // We pass the subscription ID as the transaction ID reference
+                 processEnterpriseUpgrade(uid, data.subscriptionID).then((upgraded) => {
+                   if (upgraded) {
+                     setSuccess(true);
+                     // Reload to reflect role changes
+                     window.location.reload(); 
+                   }
+                   setIsProcessing(false);
+                 });
+              } else {
                  setIsProcessing(false);
-               });
-            } else {
-               setIsProcessing(false);
+                 alert('Subscription approved, but user session not found. Please contact support.');
+              }
             }
-          }
-        }).render('#' + containerId);
+          }).render('#' + containerId);
+        } catch (err) {
+          console.error("PayPal Render Error", err);
+        }
       }
     };
 
     if (!success) {
-      renderPaypalButton();
+      // Small delay to ensure DOM is ready
+      const timer = setTimeout(renderPaypalButton, 500);
+      return () => clearTimeout(timer);
     }
   }, [success]);
 

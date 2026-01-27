@@ -29,6 +29,7 @@ const App: React.FC = () => {
         setUserProfile(null);
         setView('landing');
         setLoading(false);
+        alert("Verification Required: Please check your email inbox to verify your account before logging in.");
         return;
       }
 

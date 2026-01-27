@@ -81,7 +81,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
       case 'history': return <QuoteHistory quotes={quotes} />;
       case 'analysis': return <LaneAnalysis quotes={quotes} />;
       case 'team': return <TeamWorkspace />;
-      case 'billing': return <Billing onViewChange={onViewChange} />;
+      case 'billing': return <Billing onViewChange={onViewChange} userProfile={userProfile} />;
       case 'payment': return <PaymentPage />;
       case 'settings': return <Settings userProfile={userProfile} onProfileUpdate={onProfileUpdate} />;
       case 'support': return <Support />;
