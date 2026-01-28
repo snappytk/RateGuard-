@@ -1,17 +1,25 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Building2, Target, Globe, Users, ArrowRight, Loader2, ShieldCheck, MapPin, FileText } from 'lucide-react';
-import { updateComplianceProfile } from '../services/firebase';
-import { auth } from '../services/firebase';
+import { Building2, Target, Globe, Users, ArrowRight, Loader2, ShieldCheck, MapPin, FileText, Share2, Plus, LogIn } from 'lucide-react';
+import { updateComplianceProfile, createOrganization, joinOrganization, auth } from '../services/firebase';
 
 interface OnboardingProps {
   onComplete: (data: any) => void;
 }
 
+type OnboardingMode = 'select' | 'create' | 'join';
+
 const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
+  const [mode, setMode] = useState<OnboardingMode>('select');
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Join State
+  const [joinCode, setJoinCode] = useState('');
+
+  // Create State
   const [formData, setFormData] = useState({
     companyName: '',
     country: 'US',
@@ -20,23 +28,57 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
     currency: 'USD',
   });
 
-  const nextStep = () => setStep(s => s + 1);
-  const prevStep = () => setStep(s => s - 1);
-
-  const handleSubmit = async () => {
+  const handleCreateSubmit = async () => {
+    if (!auth.currentUser) return;
     setLoading(true);
-    if (auth.currentUser) {
-      // Save compliance data to Firestore
+    
+    try {
+      // 1. Create Org
+      const orgId = await createOrganization(auth.currentUser.uid, {
+        name: formData.companyName,
+        plan: 'free',
+        maxSeats: 5
+      });
+
+      // 2. Update User Profile with Compliance Data
       await updateComplianceProfile(auth.currentUser.uid, {
         companyName: formData.companyName,
         country: formData.country,
-        taxID: formData.taxID
+        taxID: formData.taxID,
+        // orgId is handled inside createOrganization transaction usually, 
+        // but let's ensure compliance data is there
       });
+
+      onComplete({ ...formData, orgId });
+    } catch (e: any) {
+      console.error(e);
+      setError("Failed to initialize node. Please try again.");
+    } finally {
+      setLoading(false);
     }
-    // Proceed
-    onComplete(formData);
-    setLoading(false);
   };
+
+  const handleJoinSubmit = async () => {
+    if (!auth.currentUser || !joinCode.trim()) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const result = await joinOrganization(auth.currentUser.uid, joinCode.trim());
+      if (result.success) {
+        onComplete({ orgId: joinCode.trim() });
+      } else {
+        setError(result.error || "Invalid Uplink ID.");
+      }
+    } catch (e: any) {
+      setError("Connection refused. Verify Team ID.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const nextStep = () => setStep(s => s + 1);
+  const prevStep = () => setStep(s => s - 1);
 
   return (
     <div className="min-h-screen bg-[#07090e] flex items-center justify-center p-6 relative overflow-hidden">
@@ -45,179 +87,152 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-xl w-full bg-[#0e121b] border border-zinc-800 rounded-[2.5rem] p-10 shadow-2xl space-y-10 relative"
+        className="max-w-xl w-full bg-[#0e121b] border border-zinc-800 rounded-[2.5rem] p-10 shadow-2xl space-y-8 relative"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-black italic shadow-lg">R</div>
             <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em]">Compliance Node v2.0</span>
           </div>
-          <div className="flex gap-1">
-            {[1, 2, 3].map(i => (
-              <div key={i} className={`w-8 h-1 rounded-full transition-all ${step >= i ? 'bg-blue-600 shadow-[0_0_8px_rgba(59,130,246,0.5)]' : 'bg-zinc-800'}`} />
-            ))}
-          </div>
         </div>
 
         <AnimatePresence mode="wait">
-          {step === 1 && (
-            <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8">
-              <div className="space-y-3">
-                <h2 className="text-3xl font-black text-white tracking-tighter uppercase flex items-center gap-4">
-                  <Building2 className="text-blue-500" /> Identity & Region
-                </h2>
-                <p className="text-zinc-500 text-sm font-medium">Verify your legal entity for tax compliance.</p>
-              </div>
-              <div className="space-y-4">
-                <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Forwarding Firm Name</label>
-                <input 
-                  autoFocus
-                  type="text"
-                  placeholder="e.g., Global Logistics Partners"
-                  value={formData.companyName}
-                  onChange={e => setFormData({ ...formData, companyName: e.target.value })}
-                  className="w-full bg-zinc-900/50 border border-zinc-800 rounded-2xl py-4 px-6 text-sm text-white outline-none focus:border-blue-500/50 transition-all font-mono"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                 <div className="space-y-2">
-                    <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Country</label>
-                    <select 
-                      value={formData.country}
-                      onChange={e => setFormData({ ...formData, country: e.target.value })}
-                      className="w-full bg-zinc-900/50 border border-zinc-800 rounded-2xl py-4 px-6 text-sm text-white outline-none"
-                    >
-                      <option value="US">United States</option>
-                      <option value="GB">United Kingdom</option>
-                      <option value="ZW">Zimbabwe</option>
-                      <option value="DE">Germany</option>
-                      <option value="FR">France</option>
-                      <option value="CA">Canada</option>
-                      <option value="AU">Australia</option>
-                      <option value="CN">China</option>
-                      <option value="JP">Japan</option>
-                      <option value="IN">India</option>
-                      <option value="ZA">South Africa</option>
-                      <option value="BR">Brazil</option>
-                      <option value="AE">United Arab Emirates</option>
-                      <option value="SG">Singapore</option>
-                      <option value="NL">Netherlands</option>
-                    </select>
-                 </div>
-                 <div className="space-y-2">
-                    <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Tax ID / Zip</label>
-                    <input 
-                      type="text"
-                      placeholder="Required"
-                      value={formData.taxID}
-                      onChange={e => setFormData({ ...formData, taxID: e.target.value })}
-                      className="w-full bg-zinc-900/50 border border-zinc-800 rounded-2xl py-4 px-6 text-sm text-white outline-none focus:border-blue-500/50 transition-all font-mono"
-                    />
-                 </div>
-              </div>
-
-              <button 
-                disabled={!formData.companyName || !formData.taxID}
-                onClick={nextStep}
-                className="w-full py-5 bg-white text-[#0e121b] font-black uppercase text-xs tracking-widest rounded-2xl flex items-center justify-center gap-2 hover:bg-zinc-200 disabled:opacity-50 transition-all"
-              >
-                Continue Initialization <ArrowRight size={16} />
-              </button>
-            </motion.div>
-          )}
-
-          {step === 2 && (
-            <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8">
-              <div className="space-y-3">
-                <h2 className="text-3xl font-black text-white tracking-tighter uppercase flex items-center gap-4">
-                  <Target className="text-blue-500" /> Profit Logic
-                </h2>
-                <p className="text-zinc-500 text-sm font-medium">Define your base currency and target margin.</p>
-              </div>
-              
-              <div className="space-y-6">
+          {mode === 'select' && (
+             <motion.div 
+                key="select"
+                initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} 
+                className="space-y-8"
+             >
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Operational Currency</label>
-                  <div className="grid grid-cols-3 gap-3">
-                    {['USD', 'GBP', 'EUR'].map(curr => (
-                      <button
-                        key={curr}
-                        onClick={() => setFormData({...formData, currency: curr})}
-                        className={`py-3 rounded-xl text-xs font-black transition-all border ${
-                          formData.currency === curr 
-                          ? 'bg-blue-600 border-blue-500 text-white shadow-lg' 
-                          : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:bg-zinc-800'
-                        }`}
-                      >
-                        {curr}
-                      </button>
-                    ))}
-                  </div>
+                   <h2 className="text-3xl font-black text-white tracking-tighter uppercase">Initialize Workspace</h2>
+                   <p className="text-zinc-500 font-medium text-sm">Select your operational entry point.</p>
                 </div>
 
-                <div className="space-y-4 pt-4 border-t border-zinc-800/50">
-                  <div className="flex justify-between items-center">
-                    <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Target Margin (%)</label>
-                    <span className="text-2xl font-black text-blue-500 font-mono">{formData.profitGoal}%</span>
-                  </div>
-                  <input 
-                    type="range"
-                    min="5"
-                    max="50"
-                    step="1"
-                    value={formData.profitGoal}
-                    onChange={e => setFormData({ ...formData, profitGoal: parseInt(e.target.value) })}
-                    className="w-full h-2 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-blue-500 shadow-inner"
-                  />
-                </div>
-              </div>
+                <div className="grid gap-4">
+                   <button 
+                      onClick={() => setMode('create')}
+                      className="flex items-start gap-5 p-6 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800 rounded-[2rem] text-left transition-all group"
+                   >
+                      <div className="w-12 h-12 rounded-2xl bg-blue-600/10 text-blue-500 flex items-center justify-center border border-blue-500/20 group-hover:scale-110 transition-transform">
+                         <Plus size={24} />
+                      </div>
+                      <div>
+                         <h3 className="text-lg font-bold text-white mb-1">Establish New Node</h3>
+                         <p className="text-xs text-zinc-500 leading-relaxed">Create a new Organization. You will be assigned the Administrator role.</p>
+                      </div>
+                   </button>
 
-              <div className="flex gap-4">
-                <button onClick={prevStep} className="flex-1 py-5 bg-zinc-900 text-zinc-500 font-black uppercase text-xs tracking-widest rounded-2xl border border-zinc-800">Back</button>
-                <button onClick={nextStep} className="flex-1 py-5 bg-white text-[#0e121b] font-black uppercase text-xs tracking-widest rounded-2xl">Confirm</button>
-              </div>
-            </motion.div>
+                   <button 
+                      onClick={() => setMode('join')}
+                      className="flex items-start gap-5 p-6 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800 rounded-[2rem] text-left transition-all group"
+                   >
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center border border-emerald-500/20 group-hover:scale-110 transition-transform">
+                         <Share2 size={24} />
+                      </div>
+                      <div>
+                         <h3 className="text-lg font-bold text-white mb-1">Uplink to Existing Team</h3>
+                         <p className="text-xs text-zinc-500 leading-relaxed">Join an established Organization using a Team UID provided by your manager.</p>
+                      </div>
+                   </button>
+                </div>
+             </motion.div>
           )}
 
-          {step === 3 && (
-            <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8">
-              <div className="space-y-3">
-                <h2 className="text-3xl font-black text-white tracking-tighter uppercase flex items-center gap-4">
-                  <ShieldCheck className="text-blue-500" /> Finalize Node
-                </h2>
-                <p className="text-zinc-500 text-sm font-medium">Review and initialize your operational parameters.</p>
-              </div>
-              
-              <div className="p-6 bg-zinc-900/50 rounded-2xl border border-zinc-800 space-y-4">
-                 <div className="flex justify-between text-xs">
-                    <span className="text-zinc-500">Entity:</span>
-                    <span className="text-white font-bold">{formData.companyName}</span>
-                 </div>
-                 <div className="flex justify-between text-xs">
-                    <span className="text-zinc-500">Jurisdiction:</span>
-                    <span className="text-white font-bold">{formData.country}</span>
-                 </div>
-                 <div className="flex justify-between text-xs">
-                    <span className="text-zinc-500">Tax Identity:</span>
-                    <span className="text-white font-bold font-mono">{formData.taxID}</span>
-                 </div>
-                 <div className="flex justify-between text-xs">
-                    <span className="text-zinc-500">Base Currency:</span>
-                    <span className="text-white font-bold font-mono">{formData.currency}</span>
-                 </div>
-              </div>
+          {mode === 'join' && (
+             <motion.div 
+               key="join"
+               initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} 
+               className="space-y-8"
+             >
+                <div className="space-y-2">
+                   <h2 className="text-3xl font-black text-white tracking-tighter uppercase">Team Uplink</h2>
+                   <p className="text-zinc-500 font-medium text-sm">Enter the UID to sync with your team's ledger.</p>
+                </div>
 
-              <div className="flex flex-col gap-4">
-                <button 
-                  disabled={loading}
-                  onClick={handleSubmit}
-                  className="w-full py-5 bg-blue-600 text-white font-black uppercase text-xs tracking-widest rounded-2xl flex items-center justify-center gap-2 hover:bg-blue-500 transition-all shadow-2xl shadow-blue-500/20"
-                >
-                  {loading ? <Loader2 className="animate-spin" /> : <ShieldCheck size={18} />}
-                  Complete System Initialization
-                </button>
-                <button onClick={prevStep} className="text-zinc-600 text-[10px] font-black uppercase tracking-widest hover:text-zinc-400">Back</button>
-              </div>
+                <div className="space-y-4">
+                   <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Organization UID</label>
+                   <input 
+                      autoFocus
+                      type="text"
+                      placeholder="e.g. 7f8a9d..."
+                      value={joinCode}
+                      onChange={(e) => setJoinCode(e.target.value)}
+                      className="w-full bg-zinc-900/50 border border-zinc-800 rounded-2xl py-4 px-6 text-sm text-white outline-none focus:border-emerald-500/50 transition-all font-mono"
+                   />
+                   {error && <div className="text-red-500 text-xs font-bold flex items-center gap-2"><ArrowRight size={12} /> {error}</div>}
+                </div>
+
+                <div className="flex gap-4">
+                   <button onClick={() => setMode('select')} className="px-6 py-4 rounded-2xl bg-zinc-900 text-zinc-500 font-bold text-xs uppercase tracking-widest hover:text-white">Back</button>
+                   <button 
+                      onClick={handleJoinSubmit}
+                      disabled={loading || !joinCode}
+                      className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase text-xs tracking-widest rounded-2xl flex items-center justify-center gap-2 transition-all shadow-xl shadow-emerald-500/10 disabled:opacity-50"
+                   >
+                      {loading ? <Loader2 className="animate-spin" size={16} /> : <LogIn size={16} />}
+                      Establish Link
+                   </button>
+                </div>
+             </motion.div>
+          )}
+
+          {mode === 'create' && (
+            <motion.div key="create-flow" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
+               {/* Reusing existing Step logic for creation flow */}
+               {step === 1 && (
+                  <div className="space-y-6">
+                     <div className="space-y-2">
+                        <h2 className="text-2xl font-black text-white uppercase">Corporate Identity</h2>
+                        <p className="text-zinc-500 text-sm">Register your legal entity.</p>
+                     </div>
+                     <div className="space-y-4">
+                        <input 
+                           type="text"
+                           placeholder="Company Name"
+                           value={formData.companyName}
+                           onChange={e => setFormData({ ...formData, companyName: e.target.value })}
+                           className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-white text-sm"
+                        />
+                         <input 
+                           type="text"
+                           placeholder="Tax ID"
+                           value={formData.taxID}
+                           onChange={e => setFormData({ ...formData, taxID: e.target.value })}
+                           className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-white text-sm"
+                        />
+                     </div>
+                     <div className="flex gap-4">
+                        <button onClick={() => setMode('select')} className="px-6 py-4 rounded-xl bg-zinc-900 text-zinc-500 text-xs font-bold uppercase">Back</button>
+                        <button onClick={nextStep} disabled={!formData.companyName} className="flex-1 bg-blue-600 text-white rounded-xl font-bold uppercase text-xs">Next</button>
+                     </div>
+                  </div>
+               )}
+               
+               {step === 2 && (
+                  <div className="space-y-6">
+                      <div className="space-y-2">
+                        <h2 className="text-2xl font-black text-white uppercase">Margin Protocol</h2>
+                        <p className="text-zinc-500 text-sm">Set your profit threshold.</p>
+                     </div>
+                     <div className="space-y-4">
+                        <div className="flex justify-between text-white font-bold">
+                           <span>Target</span>
+                           <span>{formData.profitGoal}%</span>
+                        </div>
+                        <input 
+                           type="range" min="5" max="50" value={formData.profitGoal}
+                           onChange={e => setFormData({...formData, profitGoal: parseInt(e.target.value)})}
+                           className="w-full accent-blue-600"
+                        />
+                     </div>
+                     <div className="flex gap-4">
+                        <button onClick={prevStep} className="px-6 py-4 rounded-xl bg-zinc-900 text-zinc-500 text-xs font-bold uppercase">Back</button>
+                        <button onClick={handleCreateSubmit} disabled={loading} className="flex-1 bg-blue-600 text-white rounded-xl font-bold uppercase text-xs flex items-center justify-center gap-2">
+                           {loading ? <Loader2 className="animate-spin" /> : 'Launch Node'}
+                        </button>
+                     </div>
+                  </div>
+               )}
             </motion.div>
           )}
         </AnimatePresence>

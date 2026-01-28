@@ -22,7 +22,6 @@ const App: React.FC = () => {
       setLoading(true);
       
       if (currentUser) {
-        // Verification Gate
         if (!currentUser.emailVerified && currentUser.providerData[0]?.providerId === 'password') {
           await signOut();
           setUserProfile(null);
@@ -34,14 +33,17 @@ const App: React.FC = () => {
         }
 
         try {
-          // CORE: Self-Healing Sync
           const { userProfile, orgProfile } = await syncUserAndOrg(currentUser);
           
           setUserProfile(userProfile);
           setOrgProfile(orgProfile);
 
-          // Routing Logic
-          if (!userProfile.country || !userProfile.taxID) {
+          // Routing Logic - Updated for Fork Onboarding
+          // If no orgId is present, we MUST go to Onboarding to Create or Join.
+          if (!userProfile.orgId || !orgProfile) {
+            setView('onboarding');
+          } else if (!userProfile.country || !userProfile.taxID) {
+            // Still show onboarding if compliance data is missing but org exists
             setView('onboarding');
           } else {
             setView('dashboard');
@@ -49,7 +51,6 @@ const App: React.FC = () => {
 
         } catch (error) {
           console.error("Initialization Failed:", error);
-          // Fallback to landing if sync explodes
           setUserProfile(null);
           setOrgProfile(null);
           setView('landing');
@@ -72,8 +73,15 @@ const App: React.FC = () => {
   };
 
   const handleOnboardingComplete = (data: any) => {
-    if (userProfile) setUserProfile({ ...userProfile, ...data });
-    setView('dashboard');
+    if (userProfile) {
+      // Optimistic update
+      const updatedProfile = { ...userProfile, ...data };
+      setUserProfile(updatedProfile);
+      
+      // If we just created/joined an org, we need to refresh to get orgProfile
+      // But for speed, we assume sync will catch up on next reload or we could force a reload
+      window.location.reload(); 
+    }
   };
 
   const handleProfileUpdate = (updates: Partial<UserProfile>) => {

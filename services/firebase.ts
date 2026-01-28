@@ -1,3 +1,4 @@
+
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { 
   getAuth, 
@@ -27,7 +28,8 @@ import {
   getDocs,
   onSnapshot,
   writeBatch,
-  arrayUnion
+  arrayUnion,
+  runTransaction
 } from "firebase/firestore";
 import { UserProfile, QuoteData, LiveRate, Audit, Organization } from "../types";
 
@@ -49,26 +51,28 @@ const googleProvider = new GoogleAuthProvider();
 
 export { auth, db, googleProvider };
 
-// --- CORE: SELF-HEALING SYNC ---
-// This function guarantees a User and Org exist before returning.
-export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile: UserProfile, orgProfile: Organization }> => {
+// --- CORE: SYNC LOGIC (UPDATED) ---
+// Note: We removed the auto-creation of Org to support the "Fork" onboarding flow.
+export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile: UserProfile, orgProfile: Organization | null }> => {
   try {
     const userRef = doc(db, "users", user.uid);
     let userSnap = await getDoc(userRef);
 
-    // 1. HEAL USER: If user doc doesn't exist, create it immediately
+    // 1. CREATE USER IF MISSING
     if (!userSnap.exists()) {
-      console.log("Healing: Creating missing User Doc...");
+      console.log("Creating new User Record...");
       const newUserData: UserProfile = {
         uid: user.uid,
         email: user.email,
         displayName: user.displayName || 'Agent',
-        role: 'admin', // First user is admin of their own org
+        role: 'member', // Default to member until they create/join org
         credits: 5,
         createdAt: Date.now(),
         lastSeen: Date.now(),
-        // orgId will be added in step 2
+        orgId: undefined // Explicitly undefined
       };
+      
+      await setDoc(userRef, newUserData);
       
       // Initialize Settings
       await setDoc(doc(db, "settings", user.uid), {
@@ -76,64 +80,31 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
         autoAudit: true,
         notifications: { email: true }
       });
-
-      await setDoc(userRef, newUserData);
-      userSnap = await getDoc(userRef); // Refresh snap
+      
+      userSnap = await getDoc(userRef);
     }
 
-    let userData = userSnap.data() as UserProfile;
+    const userData = userSnap.data() as UserProfile;
 
-    // 2. HEAL ORGANIZATION: If orgId is missing, create Org and Link
-    if (!userData.orgId) {
-      console.log("Healing: Creating missing Organization...");
-      
-      const orgName = userData.companyName || `${userData.displayName || 'User'}'s Team`;
-      
-      const newOrgData: Omit<Organization, 'id'> = {
-        name: orgName,
-        adminId: user.uid,
-        members: [user.uid],
-        plan: 'free',
-        maxSeats: 5,
-        createdAt: Date.now()
-      };
-
-      const orgRef = await addDoc(collection(db, "organizations"), newOrgData);
-      
-      // Link User to Org
-      await updateDoc(userRef, { orgId: orgRef.id });
-      userData.orgId = orgRef.id; // Local update
+    // 2. FETCH ORG IF EXISTS
+    if (userData.orgId) {
+       const orgSnap = await getDoc(doc(db, "organizations", userData.orgId));
+       if (orgSnap.exists()) {
+         return {
+           userProfile: userData,
+           orgProfile: { id: orgSnap.id, ...orgSnap.data() } as Organization
+         };
+       } else {
+         // Org ID exists on user but not in DB (Deleted?). Clear it.
+         await updateDoc(userRef, { orgId: null });
+         userData.orgId = undefined; // local update
+       }
     }
 
-    // 3. FETCH ORG DATA: Now we are guaranteed to have an orgId
-    const orgSnap = await getDoc(doc(db, "organizations", userData.orgId!));
-    
-    // Edge Case: OrgId exists on user, but Org Doc was deleted? Heal it.
-    if (!orgSnap.exists()) {
-       console.error("Critical: Org ID exists but Org Doc missing. Re-healing...");
-       // Recursive call to fix (clearing orgId first to trigger Step 2)
-       await updateDoc(userRef, { orgId: null }); // Force re-creation next loop? 
-       // Simpler: Just create it now to avoid recursion loop risk
-       const newOrgData: Omit<Organization, 'id'> = {
-        name: `${userData.displayName}'s Restored Team`,
-        adminId: user.uid,
-        members: [user.uid],
-        plan: 'free',
-        maxSeats: 5,
-        createdAt: Date.now()
-      };
-      const orgRef = await addDoc(collection(db, "organizations"), newOrgData);
-      await updateDoc(userRef, { orgId: orgRef.id });
-      
-      return {
-        userProfile: { ...userData, orgId: orgRef.id },
-        orgProfile: { id: orgRef.id, ...newOrgData }
-      };
-    }
-
+    // Return User with Null Org (Triggers Onboarding in App.tsx)
     return {
       userProfile: userData,
-      orgProfile: { id: orgSnap.id, ...orgSnap.data() } as Organization
+      orgProfile: null
     };
 
   } catch (error) {
@@ -142,11 +113,61 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
   }
 };
 
+// --- ORG MANAGEMENT HELPERS ---
+
+export const createOrganization = async (userId: string, orgData: Partial<Organization>) => {
+  const newOrgData = {
+    name: orgData.name || 'New Organization',
+    adminId: userId,
+    members: [userId],
+    plan: 'free',
+    maxSeats: 5,
+    createdAt: Date.now()
+  };
+
+  const orgRef = await addDoc(collection(db, "organizations"), newOrgData);
+  
+  // Link creator to org
+  await updateDoc(doc(db, "users", userId), { 
+    orgId: orgRef.id,
+    role: 'admin' 
+  });
+
+  return orgRef.id;
+};
+
+export const joinOrganization = async (userId: string, orgId: string) => {
+  try {
+    const orgRef = doc(db, "organizations", orgId);
+    const userRef = doc(db, "users", userId);
+
+    await runTransaction(db, async (transaction) => {
+      const orgDoc = await transaction.get(orgRef);
+      if (!orgDoc.exists()) throw new Error("Organization does not exist.");
+
+      const orgData = orgDoc.data() as Organization;
+      if (orgData.members.includes(userId)) return; // Already a member
+
+      // Limit check for free plans
+      if (orgData.plan === 'free' && orgData.members.length >= orgData.maxSeats) {
+        throw new Error("Organization is full (Free Tier Limit).");
+      }
+
+      transaction.update(orgRef, { members: arrayUnion(userId) });
+      transaction.update(userRef, { orgId: orgId, role: 'member' });
+    });
+
+    return { success: true };
+  } catch (e: any) {
+    console.error("Join Org Error:", e);
+    return { success: false, error: e.message };
+  }
+};
+
 // --- AUTH HANDLERS ---
 
 export const handleGoogleSignIn = async () => {
   const result = await signInWithPopup(auth, googleProvider);
-  // Sync handles everything
   return result.user;
 };
 
@@ -221,9 +242,7 @@ export const saveQuoteToFirestore = async (userId: string, orgId: string, quoteD
 
     const docRef = await addDoc(collection(db, "quotes"), newQuote);
     
-    // Decrement credits only if needed (Logic handled in UI/Backend check, but here we just decrement user credits for now)
-    // In Enterprise logic, we might skip this or check org plan. 
-    // For safety, we decrement user credits. If Enterprise, UI ignores the 0.
+    // Decrement credits only if needed
     const userRef = doc(db, "users", userId);
     await updateDoc(userRef, { credits: increment(-1) });
 
@@ -238,7 +257,6 @@ export const saveQuoteToFirestore = async (userId: string, orgId: string, quoteD
 
 export const processEnterpriseUpgrade = async (userId: string, orgId: string, paypalId: string) => {
   try {
-    // 1. Record Transaction
     await setDoc(doc(db, "transactions", paypalId), {
       userId,
       orgId,
@@ -247,7 +265,6 @@ export const processEnterpriseUpgrade = async (userId: string, orgId: string, pa
       createdAt: serverTimestamp()
     });
 
-    // 2. Upgrade Organization (Source of Truth)
     await updateDoc(doc(db, "organizations", orgId), {
       plan: "enterprise",
       maxSeats: 999
@@ -305,13 +322,14 @@ export const addTeammateByUID = async (ownerUid: string, colleagueUid: string) =
 };
 
 // --- LISTENERS ---
+// Updated to be more generic, though actual impl is in marketData.ts now for Massive FX
 export const listenToRates = (cb: (rates: LiveRate[]) => void) => {
   return onSnapshot(collection(db, "rates"), (snap) => {
     cb(snap.docs.map(d => ({id: d.id, ...d.data()} as LiveRate)));
   });
 };
 
-export const updateLiveRates = async () => { /* ... existing simulation code ... */ };
+export const updateLiveRates = async () => { /* Deprecated by Massive FX Service */ };
 
 export const listenToOrgAudits = (orgId: string, cb: (audits: Audit[]) => void) => {
   if (!orgId) return () => {};

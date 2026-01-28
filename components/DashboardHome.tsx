@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { TrendingUp, ShieldCheck, Target, Zap, ChevronRight, AlertCircle, CheckCircle, Loader2, ArrowUpRight, ArrowDownRight, Activity } from 'lucide-react';
+import { TrendingUp, ShieldCheck, Zap, ChevronRight, AlertCircle, CheckCircle, Loader2, ArrowUpRight, ArrowDownRight, Activity, Globe } from 'lucide-react';
 import { QuoteData, AppView, LiveRate } from '../types';
-import { listenToRates, updateLiveRates } from '../services/firebase';
+import { fetchMarketRates } from '../services/marketData';
 
 interface DashboardHomeProps {
   quotes: QuoteData[];
@@ -13,28 +13,24 @@ interface DashboardHomeProps {
 const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onUpdateQuote }) => {
   const [isApproving, setIsApproving] = useState(false);
   const [marketRates, setMarketRates] = useState<LiveRate[]>([]);
-  // Safety Measure 2: Optional Chaining
+  const [source, setSource] = useState<'live' | 'simulated'>('simulated');
+  
   const flaggedCount = quotes?.filter(q => q.status === 'flagged').length || 0;
   const pendingReview = quotes?.filter(q => q.workflowStatus === 'reviewed').length || 0;
 
-  // Real-time rates subscription
+  // Massive FX Polling
   useEffect(() => {
-    const unsubscribe = listenToRates((rates) => {
-      setMarketRates(rates || []);
-    });
-    return () => unsubscribe();
-  }, []);
+    const fetchRates = async () => {
+      const data = await fetchMarketRates();
+      setMarketRates(data.rates);
+      setSource(data.source);
+    };
 
-  // Simulation: Trigger rate updates every 5 seconds to show movement
-  useEffect(() => {
-    try {
-      const interval = setInterval(() => {
-        updateLiveRates().catch(e => console.warn("Sim update failed", e));
-      }, 5000);
-      // Initial call
-      updateLiveRates();
-      return () => clearInterval(interval);
-    } catch(e) { console.error(e) }
+    fetchRates(); // Initial fetch
+    
+    // Poll every 3 seconds
+    const interval = setInterval(fetchRates, 3000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleBatchApprove = () => {
@@ -68,32 +64,40 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onU
         </div>
       </div>
 
-      {/* Live Market Pulse Ticker (Real-Time Firestore Data) */}
+      {/* Massive FX Ticker */}
       <div className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden py-3 relative">
         <div className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-[#0e121b] to-transparent w-20 z-10 pointer-events-none" />
         <div className="absolute right-0 top-0 bottom-0 bg-gradient-to-l from-[#0e121b] to-transparent w-20 z-10 pointer-events-none" />
         
         <div className="flex items-center gap-4 px-6 border-b border-zinc-800/50 pb-2 mb-2">
-           <Activity size={14} className="text-blue-500 animate-pulse" />
-           <span className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em]">Live Market Feed</span>
+           <div className={`w-2 h-2 rounded-full ${source === 'live' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+           <span className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em]">
+             Massive FX Feed {source === 'simulated' && '(Simulation Mode)'}
+           </span>
         </div>
 
         <div className="flex items-center gap-8 pl-4 overflow-x-auto no-scrollbar">
            {!marketRates || marketRates.length === 0 ? (
-             <div className="text-xs text-zinc-600 animate-pulse px-4">Connecting to Exchange...</div>
+             <div className="text-xs text-zinc-600 animate-pulse px-4">Initializing Feed...</div>
            ) : (
              marketRates.map((rate) => (
-               <div key={rate.id} className="flex items-center gap-3 shrink-0">
-                 <span className="text-xs font-bold text-zinc-300">{rate.pair}</span>
-                 <div className="flex items-center gap-1">
-                   <span className={`text-xs font-mono font-black ${rate.trend === 'up' ? 'text-emerald-500' : 'text-red-500'}`}>
-                     {rate.midMarketRate?.toFixed(5) || '0.00000'}
-                   </span>
-                   {rate.trend === 'up' ? <ArrowUpRight size={10} className="text-emerald-500" /> : <ArrowDownRight size={10} className="text-red-500" />}
+               <div key={rate.id} className="flex items-center gap-4 shrink-0 pr-8 border-r border-zinc-800/50 last:border-0">
+                 <div className="space-y-0.5">
+                    <span className="text-xs font-bold text-zinc-300 block">{rate.pair}</span>
+                    <div className="flex items-center gap-1">
+                      <span className={`text-xs font-mono font-black ${rate.trend === 'up' ? 'text-emerald-500' : 'text-red-500'}`}>
+                        {rate.midMarketRate?.toFixed(5)}
+                      </span>
+                      {rate.trend === 'up' ? <ArrowUpRight size={10} className="text-emerald-500" /> : <ArrowDownRight size={10} className="text-red-500" />}
+                    </div>
                  </div>
-                 <div className="flex items-center gap-1 bg-zinc-800/50 px-1.5 py-0.5 rounded">
-                    <span className="text-[9px] text-zinc-500 uppercase">Spread</span>
-                    <span className="text-[9px] font-bold text-blue-400">{rate.savingsPips || 0} pips</span>
+                 <div className="space-y-0.5 text-right">
+                    <div className="text-[9px] text-zinc-500 uppercase font-bold">Bank Spread</div>
+                    <div className="text-[10px] font-mono text-zinc-400">{(rate.bankRate).toFixed(4)}</div>
+                 </div>
+                 <div className="bg-blue-500/10 px-2 py-1 rounded">
+                    <div className="text-[9px] text-blue-500 uppercase font-black">Leakage</div>
+                    <div className="text-[10px] font-mono text-white font-bold">{rate.savingsPips} pips</div>
                  </div>
                </div>
              ))
