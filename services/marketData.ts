@@ -5,6 +5,11 @@ import { LiveRate } from '../types';
 const MASSIVE_API_URL = "https://api.massive-fx.com/v1/rates"; // Placeholder for production endpoint
 const API_KEY = process.env.NEXT_PUBLIC_MASSIVE_API_KEY;
 
+// Debug check for Vercel Deployment
+if (!API_KEY) {
+  console.warn("RateGuard Warning: NEXT_PUBLIC_MASSIVE_API_KEY is not defined. Falling back to High-Fidelity Simulation Mode.");
+}
+
 // PAIRS CONFIGURATION
 const TRACKED_PAIRS = [
   { id: 'eurusd', symbol: 'EUR/USD', base: 1.0850 },
@@ -76,7 +81,6 @@ export const generateLiveRates = (count: number = 8): LiveRate[] => {
 export const fetchMarketRates = async (): Promise<{ source: 'live' | 'simulated', rates: LiveRate[] }> => {
   // DEFENSIVE: If no key, skip straight to simulation to save network roundtrip
   if (!API_KEY) {
-    // console.warn("Massive FX Key missing. Engaging Simulation Protocol.");
     return { source: 'simulated', rates: generateLiveRates(TRACKED_PAIRS.length) };
   }
 

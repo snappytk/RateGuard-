@@ -90,6 +90,7 @@ export interface UserProfile {
   companyName?: string;
   country?: string; // For compliance (ZW or US)
   taxID?: string;   // For compliance
+  hasSeenIntro?: boolean; // New User Tour Flag
   createdAt?: number;
   lastSeen?: number;
 }

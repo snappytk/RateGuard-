@@ -67,6 +67,7 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
         displayName: user.displayName || 'Agent',
         role: 'member', // Default to member until they create/join org
         credits: 5,
+        hasSeenIntro: false, // Default to false for new users
         createdAt: Date.now(),
         lastSeen: Date.now(),
         orgId: undefined // Explicitly undefined
@@ -142,11 +143,22 @@ export const joinOrganization = async (userId: string, orgId: string) => {
     const userRef = doc(db, "users", userId);
 
     await runTransaction(db, async (transaction) => {
+      // 1. Check User Status first
+      const userDoc = await transaction.get(userRef);
+      if (!userDoc.exists()) throw new Error("User does not exist.");
+      const userData = userDoc.data() as UserProfile;
+      
+      // STRICT CHECK: Cannot join if already in an org
+      if (userData.orgId) {
+        throw new Error("You are already a member of an organization. Please leave your current organization first.");
+      }
+
+      // 2. Check Org Status
       const orgDoc = await transaction.get(orgRef);
-      if (!orgDoc.exists()) throw new Error("Organization does not exist.");
+      if (!orgDoc.exists()) throw new Error("Organization not found. Please check the UID.");
 
       const orgData = orgDoc.data() as Organization;
-      if (orgData.members.includes(userId)) return; // Already a member
+      if (orgData.members.includes(userId)) return; // Already a member (idempotency)
 
       // Limit check for free plans
       if (orgData.plan === 'free' && orgData.members.length >= orgData.maxSeats) {
@@ -161,6 +173,17 @@ export const joinOrganization = async (userId: string, orgId: string) => {
   } catch (e: any) {
     console.error("Join Org Error:", e);
     return { success: false, error: e.message };
+  }
+};
+
+export const markIntroSeen = async (userId: string) => {
+  try {
+    const userRef = doc(db, "users", userId);
+    await updateDoc(userRef, { hasSeenIntro: true });
+    return true;
+  } catch (e) {
+    console.error("Error updating intro status", e);
+    return false;
   }
 };
 

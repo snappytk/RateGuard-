@@ -22,8 +22,9 @@ import PrivacyPolicy from './PrivacyPolicy';
 import TermsAndConditions from './TermsAndConditions';
 import CookiePolicy from './CookiePolicy';
 import PaymentPage from './PaymentPage';
+import WelcomeTour from './WelcomeTour';
 import { AppView, QuoteData, UserProfile, Organization } from '../types';
-import { fetchOrgQuotes } from '../services/firebase';
+import { fetchOrgQuotes, markIntroSeen } from '../services/firebase';
 
 interface DashboardProps {
   currentView: AppView;
@@ -38,6 +39,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isNavMenuOpen, setIsNavMenuOpen] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(true);
+  const [showTour, setShowTour] = useState(false);
   const navMenuRef = useRef<HTMLDivElement>(null);
   const [quotes, setQuotes] = useState<QuoteData[]>([]);
 
@@ -49,6 +51,11 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
     const loadData = async () => {
       // Gate: Don't fetch if crucial IDs are missing
       if (!userProfile?.uid || !userProfile?.orgId) return;
+
+      // Check for Intro Tour
+      if (userProfile.hasSeenIntro === false) {
+        setShowTour(true);
+      }
 
       setIsLoadingData(true);
       try {
@@ -67,6 +74,14 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
         loadData();
     }
   }, [userProfile?.uid, userProfile?.orgId]);
+
+  const handleTourClose = async () => {
+    setShowTour(false);
+    if (userProfile?.uid) {
+      await markIntroSeen(userProfile.uid);
+      if (onProfileUpdate) onProfileUpdate({ hasSeenIntro: true });
+    }
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -123,7 +138,11 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
   };
 
   return (
-    <div className="flex h-screen bg-[#0e121b] text-zinc-100 overflow-hidden">
+    <div className="flex h-screen bg-[#0e121b] text-zinc-100 overflow-hidden relative">
+      <AnimatePresence>
+        {showTour && <WelcomeTour onClose={handleTourClose} />}
+      </AnimatePresence>
+
       <Sidebar 
         currentView={currentView} 
         onViewChange={onViewChange} 
