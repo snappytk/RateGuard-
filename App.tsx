@@ -9,6 +9,7 @@ import { AppView, UserProfile, Organization } from './types';
 import { auth, onAuthStateChanged, syncUserAndOrg, signOut } from './services/firebase';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
+import { Analytics } from '@vercel/analytics/react';
 
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>('landing');
@@ -129,6 +130,7 @@ const App: React.FC = () => {
             />
           )}
         </AnimatePresence>
+        <Analytics />
       </div>
     </ErrorBoundary>
   );
