@@ -18,10 +18,27 @@ service cloud.firestore {
       allow read: if request.auth != null && resource.data.userId == request.auth.uid;
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid 
                     && request.resource.data.pdfBase64.size() < 1048576; // Max 1MB
+      allow update: if request.auth != null && resource.data.userId == request.auth.uid;
     }
     
-    // Transactions: Users can read their own transactions. Only server (via functions) or strict logic should write, but for this client-side demo:
-    // Allow create if userId matches.
+    // Rates: Allow access for authenticated users (required for Dashboard simulation)
+    match /rates/{rateId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Audits: Allow read for org members
+    match /audits/{auditId} {
+      allow read: if request.auth != null; // Refine to org-match in production
+      allow create: if request.auth != null;
+    }
+    
+    // Organizations
+    match /organizations/{orgId} {
+       allow read, write: if request.auth != null && request.auth.uid in resource.data.members;
+       allow create: if request.auth != null;
+    }
+
+    // Transactions: Users can read their own transactions.
     match /transactions/{txnId} {
       allow read: if request.auth != null && resource.data.userId == request.auth.uid;
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;

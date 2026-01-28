@@ -234,53 +234,65 @@ export const addTeammateByUID = async (ownerUid: string, colleagueUid: string) =
 
 // 1. Writer: Simulate Market Movement
 export const updateLiveRates = async () => {
-  // Base rates to simulate around
-  const baseRates: Record<string, number> = {
-    'USD/CAD': 1.3521,
-    'EUR/USD': 1.0845,
-    'GBP/USD': 1.2730
-  };
-
-  const pairs = Object.keys(baseRates);
-
-  for (const pair of pairs) {
-    const base = baseRates[pair];
-    // Random fluctuation +/- 0.0005
-    const fluctuation = (Math.random() - 0.5) * 0.001; 
-    const midMarket = base + fluctuation;
-    
-    // Bank spread ~2%
-    const bankRate = midMarket * 1.02;
-    // RateGuard optimization ~0.3% spread
-    const rateGuardRate = midMarket * 1.003;
-    
-    const savingsPips = Math.round((bankRate - rateGuardRate) * 10000);
-
-    const rateData: Partial<LiveRate> = {
-      pair,
-      midMarketRate: parseFloat(midMarket.toFixed(5)),
-      bankRate: parseFloat(bankRate.toFixed(5)),
-      rateGuardRate: parseFloat(rateGuardRate.toFixed(5)),
-      savingsPips,
-      timestamp: Date.now(),
-      trend: fluctuation > 0 ? 'up' : 'down'
+  try {
+    // Base rates to simulate around
+    const baseRates: Record<string, number> = {
+      'USD/CAD': 1.3521,
+      'EUR/USD': 1.0845,
+      'GBP/USD': 1.2730
     };
 
-    // Write to Firestore 'rates' collection, doc ID = pair name
-    // Using setDoc with merge to create or update
-    await setDoc(doc(db, "rates", pair.replace('/', '-')), rateData, { merge: true });
+    const pairs = Object.keys(baseRates);
+
+    for (const pair of pairs) {
+      const base = baseRates[pair];
+      // Random fluctuation +/- 0.0005
+      const fluctuation = (Math.random() - 0.5) * 0.001; 
+      const midMarket = base + fluctuation;
+      
+      // Bank spread ~2%
+      const bankRate = midMarket * 1.02;
+      // RateGuard optimization ~0.3% spread
+      const rateGuardRate = midMarket * 1.003;
+      
+      const savingsPips = Math.round((bankRate - rateGuardRate) * 10000);
+
+      const rateData: Partial<LiveRate> = {
+        pair,
+        midMarketRate: parseFloat(midMarket.toFixed(5)),
+        bankRate: parseFloat(bankRate.toFixed(5)),
+        rateGuardRate: parseFloat(rateGuardRate.toFixed(5)),
+        savingsPips,
+        timestamp: Date.now(),
+        trend: fluctuation > 0 ? 'up' : 'down'
+      };
+
+      // Write to Firestore 'rates' collection, doc ID = pair name
+      // Using setDoc with merge to create or update
+      await setDoc(doc(db, "rates", pair.replace('/', '-')), rateData, { merge: true });
+    }
+  } catch (error) {
+    // Suppress simulation errors to prevent crash if permissions are missing
+    console.warn("Live rate simulation paused (Permission/Network):", error);
   }
 };
 
 // 2. Reader: Subscribe to Rates
 export const listenToRates = (callback: (rates: LiveRate[]) => void) => {
-  return onSnapshot(collection(db, "rates"), (snapshot) => {
-    const rates: LiveRate[] = [];
-    snapshot.forEach(doc => {
-      rates.push({ id: doc.id, ...doc.data() } as LiveRate);
+  try {
+    return onSnapshot(collection(db, "rates"), (snapshot) => {
+      const rates: LiveRate[] = [];
+      snapshot.forEach(doc => {
+        rates.push({ id: doc.id, ...doc.data() } as LiveRate);
+      });
+      callback(rates);
+    }, (error) => {
+      console.warn("Rate subscription paused:", error);
     });
-    callback(rates);
-  });
+  } catch (error) {
+    console.error("Listen rates error:", error);
+    return () => {}; // Return no-op unsubscribe
+  }
 };
 
 // --- AUDIT & TEAM HISTORY LOGIC ---
@@ -312,19 +324,26 @@ export const saveAudit = async (auditData: {
 };
 
 export const listenToOrgAudits = (orgId: string, callback: (audits: Audit[]) => void) => {
-  const q = query(
-    collection(db, "audits"), 
-    where("orgId", "==", orgId), 
-    orderBy("timestamp", "desc")
-  );
+  try {
+    const q = query(
+      collection(db, "audits"), 
+      where("orgId", "==", orgId), 
+      orderBy("timestamp", "desc")
+    );
 
-  return onSnapshot(q, (snapshot) => {
-    const audits: Audit[] = [];
-    snapshot.forEach(doc => {
-      audits.push({ id: doc.id, ...doc.data() } as Audit);
+    return onSnapshot(q, (snapshot) => {
+      const audits: Audit[] = [];
+      snapshot.forEach(doc => {
+        audits.push({ id: doc.id, ...doc.data() } as Audit);
+      });
+      callback(audits);
+    }, (error) => {
+      console.warn("Audit listener warning:", error);
     });
-    callback(audits);
-  });
+  } catch (error) {
+    console.error("Audit listener setup failed:", error);
+    return () => {};
+  }
 };
 
 // --- EXISTING QUOTE LOGIC ---
@@ -344,6 +363,7 @@ export const fetchUserQuotes = async (userId: string): Promise<QuoteData[]> => {
     return quotes;
   } catch (error) {
     console.error("Error fetching quotes:", error);
+    // Return empty array gracefully instead of crashing
     return [];
   }
 };
