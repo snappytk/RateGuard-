@@ -60,8 +60,10 @@ export interface CompanyProfile {
 export interface Organization {
   id: string;
   name: string;
-  admins: string[]; // Array of User UIDs
+  adminId: string; // The owner UID
   members: string[]; // Array of User UIDs
+  plan: 'free' | 'enterprise'; // The source of truth for billing
+  maxSeats: number;
   createdAt: number;
 }
 
@@ -83,8 +85,8 @@ export interface UserProfile {
   email: string | null;
   displayName: string | null;
   orgId?: string; // Link to the Organization
-  role: 'free' | 'enterprise';
-  credits: number;
+  role: 'admin' | 'member'; // Role within the Org
+  credits: number; // Individual credits (ignored if Org is enterprise)
   companyName?: string;
   country?: string; // For compliance (ZW or US)
   taxID?: string;   // For compliance

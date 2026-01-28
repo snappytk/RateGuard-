@@ -4,58 +4,59 @@ import LandingPage from './components/LandingPage';
 import Dashboard from './components/Dashboard';
 import Auth from './components/Auth';
 import Onboarding from './components/Onboarding';
-import { AppView, CompanyProfile, UserProfile } from './types';
-import { auth, onAuthStateChanged, syncUserToFirestore, signOut, handleGoogleSignIn } from './services/firebase';
+import ErrorBoundary from './components/ErrorBoundary';
+import { AppView, UserProfile, Organization } from './types';
+import { auth, onAuthStateChanged, syncUserAndOrg, signOut } from './services/firebase';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>('landing');
-  const [user, setUser] = useState<any>(null); // Firebase User
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [orgProfile, setOrgProfile] = useState<Organization | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAuth, setShowAuth] = useState(false);
 
   useEffect(() => {
-    // Auth Listener
     const unsubscribe = onAuthStateChanged(async (currentUser) => {
-      
-      // Strict Verification Check
-      if (currentUser && !currentUser.emailVerified && currentUser.providerData[0]?.providerId === 'password') {
-        // If password user is somehow logged in but not verified, force sign out.
-        // This ensures they only access app after clicking verify link and logging in again.
-        await signOut();
-        setUser(null);
-        setUserProfile(null);
-        setView('landing');
-        setLoading(false);
-        alert("Verification Required: Please check your email inbox to verify your account before logging in.");
-        return;
-      }
-
-      setUser(currentUser);
+      setLoading(true);
       
       if (currentUser) {
-        // Fetch Profile from Firestore
+        // Verification Gate
+        if (!currentUser.emailVerified && currentUser.providerData[0]?.providerId === 'password') {
+          await signOut();
+          setUserProfile(null);
+          setOrgProfile(null);
+          setView('landing');
+          setLoading(false);
+          alert("Please verify your email address to access the terminal.");
+          return;
+        }
+
         try {
-          const profile = await syncUserToFirestore(currentUser);
-          setUserProfile(profile);
+          // CORE: Self-Healing Sync
+          const { userProfile, orgProfile } = await syncUserAndOrg(currentUser);
           
-          // Logic: Check for Compliance Data (Country/TaxID)
-          // If profile exists but missing country/taxID, force Onboarding
-          if (profile && (!profile.country || !profile.taxID)) {
-             setView('onboarding');
-          } else if (profile) {
-             setView('dashboard');
+          setUserProfile(userProfile);
+          setOrgProfile(orgProfile);
+
+          // Routing Logic
+          if (!userProfile.country || !userProfile.taxID) {
+            setView('onboarding');
           } else {
-             // Fallback if sync fails initially
-             setView('landing'); 
+            setView('dashboard');
           }
+
         } catch (error) {
-          console.error("Profile sync failed", error);
+          console.error("Initialization Failed:", error);
+          // Fallback to landing if sync explodes
+          setUserProfile(null);
+          setOrgProfile(null);
+          setView('landing');
         }
       } else {
         setUserProfile(null);
+        setOrgProfile(null);
         setView('landing');
       }
       setLoading(false);
@@ -63,30 +64,20 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  const handleAuthSuccess = async () => {
-     setShowAuth(false);
-     // Auth listener will handle redirection
-  };
-
   const handleLogout = async () => {
     await signOut();
     setUserProfile(null);
+    setOrgProfile(null);
     setView('landing');
   };
 
   const handleOnboardingComplete = (data: any) => {
-    // Optimistically update profile to avoid reload delay
-    if (userProfile) {
-       setUserProfile({ ...userProfile, ...data });
-    }
+    if (userProfile) setUserProfile({ ...userProfile, ...data });
     setView('dashboard');
   };
 
-  // Helper to update profile locally
   const handleProfileUpdate = (updates: Partial<UserProfile>) => {
-    if (userProfile) {
-      setUserProfile({ ...userProfile, ...updates });
-    }
+    if (userProfile) setUserProfile({ ...userProfile, ...updates });
   };
 
   if (loading) {
@@ -101,34 +92,37 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#07090e]">
-      {view === 'landing' && (
-        <LandingPage onEnter={() => setShowAuth(true)} />
-      )}
+    <ErrorBoundary>
+      <div className="min-h-screen bg-[#07090e]">
+        {view === 'landing' && (
+          <LandingPage onEnter={() => setShowAuth(true)} />
+        )}
 
-      {view === 'onboarding' && (
-        <Onboarding onComplete={handleOnboardingComplete} />
-      )}
+        {view === 'onboarding' && (
+          <Onboarding onComplete={handleOnboardingComplete} />
+        )}
 
-      {view !== 'landing' && view !== 'onboarding' && (
-        <Dashboard 
-          currentView={view} 
-          onViewChange={setView} 
-          onLogout={handleLogout}
-          userProfile={userProfile}
-          onProfileUpdate={handleProfileUpdate}
-        />
-      )}
-
-      <AnimatePresence>
-        {showAuth && (
-          <Auth 
-            onClose={() => setShowAuth(false)} 
-            onSuccess={handleAuthSuccess} 
+        {view !== 'landing' && view !== 'onboarding' && (
+          <Dashboard 
+            currentView={view} 
+            onViewChange={setView} 
+            onLogout={handleLogout}
+            userProfile={userProfile}
+            orgProfile={orgProfile} // Pass Org Data
+            onProfileUpdate={handleProfileUpdate}
           />
         )}
-      </AnimatePresence>
-    </div>
+
+        <AnimatePresence>
+          {showAuth && (
+            <Auth 
+              onClose={() => setShowAuth(false)} 
+              onSuccess={() => setShowAuth(false)} 
+            />
+          )}
+        </AnimatePresence>
+      </div>
+    </ErrorBoundary>
   );
 };
 

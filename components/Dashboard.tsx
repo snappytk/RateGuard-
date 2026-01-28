@@ -22,7 +22,7 @@ import PrivacyPolicy from './PrivacyPolicy';
 import TermsAndConditions from './TermsAndConditions';
 import CookiePolicy from './CookiePolicy';
 import PaymentPage from './PaymentPage';
-import { AppView, QuoteData, UserProfile } from '../types';
+import { AppView, QuoteData, UserProfile, Organization } from '../types';
 import { fetchOrgQuotes } from '../services/firebase';
 
 interface DashboardProps {
@@ -30,45 +30,43 @@ interface DashboardProps {
   onViewChange: (view: AppView) => void;
   onLogout: () => void;
   userProfile: UserProfile | null;
+  orgProfile: Organization | null; // Added Org Profile
   onProfileUpdate?: (updates: Partial<UserProfile>) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogout, userProfile, onProfileUpdate }) => {
+const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogout, userProfile, orgProfile, onProfileUpdate }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isNavMenuOpen, setIsNavMenuOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(true); // Added loading state
+  const [isLoadingData, setIsLoadingData] = useState(true);
   const navMenuRef = useRef<HTMLDivElement>(null);
-
-  // Initialize with empty array, fetch real data
   const [quotes, setQuotes] = useState<QuoteData[]>([]);
 
-  // Safety Measure 1: Loading State Check
+  // Enterprise Helper
+  const isEnterprise = orgProfile?.plan === 'enterprise';
+
+  // Defensive Data Loading
   useEffect(() => {
     const loadData = async () => {
-      // If no profile yet, keep loading
-      if (!userProfile) return;
+      // Gate: Don't fetch if crucial IDs are missing
+      if (!userProfile?.uid || !userProfile?.orgId) return;
 
-      setIsLoading(true);
+      setIsLoadingData(true);
       try {
-        // Safety Measure 4: Try/Catch for Firestore
-        if (userProfile?.orgId) {
-          const orgQuotes = await fetchOrgQuotes(userProfile.orgId);
-          // Safety Measure 2: Optional Chaining & Null Check
-          if (orgQuotes && Array.isArray(orgQuotes)) {
-            setQuotes(orgQuotes);
-          }
+        const orgQuotes = await fetchOrgQuotes(userProfile.orgId);
+        if (orgQuotes && Array.isArray(orgQuotes)) {
+          setQuotes(orgQuotes);
         }
       } catch (error) {
-        console.error("Dashboard Data Load Error:", error);
+        console.error("Dashboard Load Error:", error);
       } finally {
-        setIsLoading(false);
+        setIsLoadingData(false);
       }
     };
     
-    if (userProfile) {
+    if (userProfile && orgProfile) {
         loadData();
     }
-  }, [userProfile?.orgId]);
+  }, [userProfile?.uid, userProfile?.orgId]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -79,6 +77,16 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // DEFENSIVE: Block Rendering if critical data is missing
+  if (!userProfile || !orgProfile) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-[#0e121b] text-zinc-500 gap-3">
+        <Loader2 className="animate-spin" size={24} />
+        <span className="font-bold tracking-widest text-xs uppercase">Loading Organization Node...</span>
+      </div>
+    );
+  }
 
   const addQuote = (newQuote: QuoteData) => {
     setQuotes(prev => [newQuote, ...prev]);
@@ -93,25 +101,16 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
     setIsNavMenuOpen(false);
   };
 
-  // Safety Measure 1 (UI): Return loading screen if data isn't ready
-  if (isLoading && !userProfile) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-[#0e121b] text-zinc-500 gap-3">
-        <Loader2 className="animate-spin" size={24} />
-        <span className="font-bold tracking-widest text-xs uppercase">Loading RateGuard...</span>
-      </div>
-    );
-  }
-
   const renderView = () => {
     switch (currentView) {
       case 'dashboard': return <DashboardHome quotes={quotes} onViewChange={onViewChange} onUpdateQuote={updateQuote} />;
-      case 'quotes': return <IntelligenceFeed quotes={quotes} onAddQuote={addQuote} onUpdateQuote={updateQuote} userProfile={userProfile} onProfileUpdate={onProfileUpdate} />;
+      // Pass isEnterprise down to IntelligenceFeed for credit logic
+      case 'quotes': return <IntelligenceFeed quotes={quotes} onAddQuote={addQuote} onUpdateQuote={updateQuote} userProfile={userProfile} isEnterprise={isEnterprise} onProfileUpdate={onProfileUpdate} />;
       case 'history': return <QuoteHistory quotes={quotes} />;
       case 'analysis': return <LaneAnalysis quotes={quotes} />;
       case 'team': return <TeamWorkspace />;
-      case 'billing': return <Billing onViewChange={onViewChange} userProfile={userProfile} />;
-      case 'payment': return <PaymentPage />;
+      case 'billing': return <Billing onViewChange={onViewChange} userProfile={userProfile} orgProfile={orgProfile} />;
+      case 'payment': return <PaymentPage orgId={orgProfile.id} />; // Pass OrgId to Payment
       case 'settings': return <Settings userProfile={userProfile} onProfileUpdate={onProfileUpdate} />;
       case 'support': return <Support />;
       case 'studio': return <ImageStudio />;
@@ -182,21 +181,24 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
               </AnimatePresence>
             </div>
             <h1 className="text-xs font-black tracking-[0.2em] text-zinc-400 uppercase hidden sm:block">
-              Operational Terminal
+              {orgProfile.name} Terminal
             </h1>
           </div>
           <div className="flex items-center gap-4">
-            {/* Credit Display */}
-            {userProfile && (
-               <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 rounded-lg border border-zinc-800">
-                  <Zap size={12} className={userProfile?.credits > 0 ? "text-yellow-500 fill-yellow-500" : "text-zinc-600"} />
-                  <span className="text-[10px] font-black text-zinc-300 uppercase tracking-widest">{userProfile?.credits ?? 0} Credits</span>
-               </div>
-            )}
+            {/* Credit / Plan Display */}
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${isEnterprise ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 'bg-zinc-900 border-zinc-800 text-zinc-400'}`}>
+                <Zap size={12} className={isEnterprise ? "fill-emerald-500" : userProfile.credits > 0 ? "fill-yellow-500 text-yellow-500" : ""} />
+                <span className="text-[10px] font-black uppercase tracking-widest">
+                  {isEnterprise ? 'UNLIMITED' : `${userProfile.credits} CREDITS`}
+                </span>
+            </div>
 
-            <button onClick={() => onViewChange('payment')} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-[10px] font-black uppercase tracking-widest text-white transition-all hidden sm:block">
-              Activate Defense
-            </button>
+            {!isEnterprise && (
+              <button onClick={() => onViewChange('payment')} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-[10px] font-black uppercase tracking-widest text-white transition-all hidden sm:block">
+                Upgrade Node
+              </button>
+            )}
+            
             <button className="p-2 text-zinc-400 hover:text-white transition-colors relative">
               <Bell size={18} />
               <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-red-500 rounded-full" />
@@ -217,7 +219,6 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
               </motion.div>
             </AnimatePresence>
           </div>
-          {/* Safety Measure 2: Optional Chaining for Sidebar props */}
           {['dashboard', 'quotes', 'history'].includes(currentView) ? <ProfitGuardSidebar quotes={quotes} /> : null}
         </main>
       </div>

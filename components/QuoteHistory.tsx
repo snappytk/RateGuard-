@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import { QuoteData, Audit } from '../types';
 import { Search, Filter, MoreHorizontal, FileText, Users, Download } from 'lucide-react';
-import { listenToOrgAudits, auth, syncUserToFirestore } from '../services/firebase';
+import { listenToOrgAudits, auth, syncUserAndOrg } from '../services/firebase';
 
 const QuoteHistory: React.FC<{ quotes: QuoteData[] }> = () => {
   const [audits, setAudits] = useState<Audit[]>([]);
@@ -13,11 +12,11 @@ const QuoteHistory: React.FC<{ quotes: QuoteData[] }> = () => {
     const init = async () => {
       try {
         if (auth.currentUser) {
-          const profile = await syncUserToFirestore(auth.currentUser);
-          if (profile?.orgId) {
-            setUserOrg(profile.orgId);
+          const { userProfile } = await syncUserAndOrg(auth.currentUser);
+          if (userProfile?.orgId) {
+            setUserOrg(userProfile.orgId);
             // Subscribe to Shared Team Audits
-            const unsubscribe = listenToOrgAudits(profile.orgId, (data) => {
+            const unsubscribe = listenToOrgAudits(userProfile.orgId, (data) => {
               setAudits(data || []); // Ensure data is array
               setLoading(false);
             });
