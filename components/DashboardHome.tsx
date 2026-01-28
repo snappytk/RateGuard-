@@ -1,7 +1,8 @@
 
-import React, { useState } from 'react';
-import { TrendingUp, ShieldCheck, Target, Zap, ChevronRight, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
-import { QuoteData, AppView } from '../types';
+import React, { useState, useEffect } from 'react';
+import { TrendingUp, ShieldCheck, Target, Zap, ChevronRight, AlertCircle, CheckCircle, Loader2, ArrowUpRight, ArrowDownRight, Activity } from 'lucide-react';
+import { QuoteData, AppView, LiveRate } from '../types';
+import { listenToRates, updateLiveRates } from '../services/firebase';
 
 interface DashboardHomeProps {
   quotes: QuoteData[];
@@ -11,8 +12,27 @@ interface DashboardHomeProps {
 
 const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onUpdateQuote }) => {
   const [isApproving, setIsApproving] = useState(false);
+  const [marketRates, setMarketRates] = useState<LiveRate[]>([]);
   const flaggedCount = quotes.filter(q => q.status === 'flagged').length;
   const pendingReview = quotes.filter(q => q.workflowStatus === 'reviewed').length;
+
+  // Real-time rates subscription
+  useEffect(() => {
+    const unsubscribe = listenToRates((rates) => {
+      setMarketRates(rates);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Simulation: Trigger rate updates every 5 seconds to show movement
+  useEffect(() => {
+    const interval = setInterval(() => {
+      updateLiveRates();
+    }, 5000);
+    // Initial call
+    updateLiveRates();
+    return () => clearInterval(interval);
+  }, []);
 
   const handleBatchApprove = () => {
     if (!onUpdateQuote) return;
@@ -42,6 +62,39 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onU
                  <div className="text-xl font-black text-white">$14,240.00</div>
               </div>
            </div>
+        </div>
+      </div>
+
+      {/* Live Market Pulse Ticker (Real-Time Firestore Data) */}
+      <div className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden py-3 relative">
+        <div className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-[#0e121b] to-transparent w-20 z-10 pointer-events-none" />
+        <div className="absolute right-0 top-0 bottom-0 bg-gradient-to-l from-[#0e121b] to-transparent w-20 z-10 pointer-events-none" />
+        
+        <div className="flex items-center gap-4 px-6 border-b border-zinc-800/50 pb-2 mb-2">
+           <Activity size={14} className="text-blue-500 animate-pulse" />
+           <span className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em]">Live Market Feed</span>
+        </div>
+
+        <div className="flex items-center gap-8 pl-4 overflow-x-auto no-scrollbar">
+           {marketRates.length === 0 ? (
+             <div className="text-xs text-zinc-600 animate-pulse px-4">Connecting to Exchange...</div>
+           ) : (
+             marketRates.map((rate) => (
+               <div key={rate.id} className="flex items-center gap-3 shrink-0">
+                 <span className="text-xs font-bold text-zinc-300">{rate.pair}</span>
+                 <div className="flex items-center gap-1">
+                   <span className={`text-xs font-mono font-black ${rate.trend === 'up' ? 'text-emerald-500' : 'text-red-500'}`}>
+                     {rate.midMarketRate.toFixed(5)}
+                   </span>
+                   {rate.trend === 'up' ? <ArrowUpRight size={10} className="text-emerald-500" /> : <ArrowDownRight size={10} className="text-red-500" />}
+                 </div>
+                 <div className="flex items-center gap-1 bg-zinc-800/50 px-1.5 py-0.5 rounded">
+                    <span className="text-[9px] text-zinc-500 uppercase">Spread</span>
+                    <span className="text-[9px] font-bold text-blue-400">{rate.savingsPips} pips</span>
+                 </div>
+               </div>
+             ))
+           )}
         </div>
       </div>
 

@@ -34,6 +34,17 @@ export interface QuoteData {
   createdAt: number;
 }
 
+export interface LiveRate {
+  id: string;
+  pair: string;
+  timestamp: number;
+  midMarketRate: number;
+  bankRate: number; 
+  rateGuardRate: number;
+  savingsPips: number;
+  trend: 'up' | 'down';
+}
+
 export interface LaneTrend {
   lane: string;
   history: Array<{ date: string; rate: number }>;
@@ -45,10 +56,32 @@ export interface CompanyProfile {
   currency: string;
 }
 
+export interface Organization {
+  id: string;
+  name: string;
+  admins: string[]; // Array of User UIDs
+  members: string[]; // Array of User UIDs
+  createdAt: number;
+}
+
+export interface Audit {
+  id: string;
+  orgId: string;
+  userId: string;
+  userName: string;
+  pair: string;
+  amount: number;
+  bankRate: number;
+  midMarketRate: number;
+  leakage: number; // The money lost due to bad spread
+  timestamp: number;
+}
+
 export interface UserProfile {
   uid: string;
   email: string | null;
   displayName: string | null;
+  orgId?: string; // Link to the Organization
   role: 'free' | 'enterprise';
   credits: number;
   companyName?: string;

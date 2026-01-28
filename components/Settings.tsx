@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { Save, User, Bell, Shield, Cpu, Sliders, Check } from 'lucide-react';
+import { Save, User, Bell, Shield, Cpu, Sliders, Check, Database, Download } from 'lucide-react';
 import { UserProfile } from '../types';
 import { updateUserSettings, fetchUserSettings, updateUserProfileData } from '../services/firebase';
+import { generateLiveRates, downloadRatesJSON } from '../services/marketData';
 
 interface SettingsProps {
   userProfile: UserProfile | null;
@@ -64,8 +65,13 @@ const Settings: React.FC<SettingsProps> = ({ userProfile, onProfileUpdate }) => 
     }
   };
 
+  const handleExportRates = () => {
+     const rates = generateLiveRates(100);
+     downloadRatesJSON(rates);
+  };
+
   return (
-    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500">
+    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500 pb-10">
       <div>
         <h2 className="text-3xl font-bold tracking-tight mb-2">Platform Settings</h2>
         <p className="text-zinc-500">Configure your global AI audit parameters and security protocols.</p>
@@ -146,6 +152,26 @@ const Settings: React.FC<SettingsProps> = ({ userProfile, onProfileUpdate }) => 
                   className="w-full bg-[#0e121b] border border-zinc-800 rounded-lg px-4 py-2 text-sm outline-none text-zinc-500 cursor-not-allowed" 
                 />
               </div>
+            </div>
+          </section>
+
+          {/* Developer Tools */}
+          <section className="bg-zinc-900 border border-dashed border-zinc-700 rounded-2xl p-6 space-y-6">
+            <div className="flex items-center gap-3 border-b border-zinc-800/50 pb-4">
+              <Database size={20} className="text-zinc-500" />
+              <h3 className="text-lg font-bold text-zinc-400">Developer Tools</h3>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                 <div className="text-sm font-bold text-zinc-300">Export Live Rate JSON</div>
+                 <div className="text-xs text-zinc-500">Generate 100 simulation objects for Firebase seeding.</div>
+              </div>
+              <button 
+                onClick={handleExportRates}
+                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold uppercase tracking-widest rounded-lg transition-colors flex items-center gap-2"
+              >
+                <Download size={14} /> Export JSON
+              </button>
             </div>
           </section>
         </div>

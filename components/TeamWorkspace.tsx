@@ -1,9 +1,39 @@
 
-import React from 'react';
-import { Users, UserPlus, Clock, Zap, Shield, CheckCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { Users, UserPlus, Clock, Zap, Shield, CheckCircle, Copy, AlertCircle, Loader2 } from 'lucide-react';
 import { TeamMember } from '../types';
+import { auth, addTeammateByUID } from '../services/firebase';
 
 const TeamWorkspace: React.FC = () => {
+  const [inviteUid, setInviteUid] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [feedback, setFeedback] = useState<{type: 'success' | 'error', msg: string} | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const currentUid = auth.currentUser?.uid || '';
+
+  const handleCopyUid = () => {
+    navigator.clipboard.writeText(currentUid);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleInvite = async () => {
+    if (!inviteUid.trim()) return;
+    setIsLoading(true);
+    setFeedback(null);
+
+    const result = await addTeammateByUID(currentUid, inviteUid.trim());
+
+    if (result.success) {
+      setFeedback({ type: 'success', msg: 'Operator added to network.' });
+      setInviteUid('');
+    } else {
+      setFeedback({ type: 'error', msg: result.error || 'Failed to add operator.' });
+    }
+    setIsLoading(false);
+  };
+
   const members: TeamMember[] = [
     { id: '1', name: 'John Doe', role: 'Manager', status: 'Online', activity: 'Reviewed 12 flagged quotes' },
     { id: '2', name: 'Sarah Miller', role: 'Processor', status: 'Online', activity: 'Ingested 42 carrier quotes' },
@@ -18,9 +48,69 @@ const TeamWorkspace: React.FC = () => {
           <h2 className="text-4xl font-black text-white tracking-tighter mb-2">Team Workspace</h2>
           <p className="text-zinc-500">Coordinate your operations team and manage role-based access.</p>
         </div>
-        <button className="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-widest text-[10px] rounded-2xl shadow-xl transition-all active:scale-95 flex items-center gap-2">
-           <UserPlus size={16} /> Invite Member
-        </button>
+      </div>
+
+      {/* Invite Protocol Section */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+         {/* The Joiner: My ID */}
+         <div className="p-8 bg-zinc-900 border border-zinc-800 rounded-[2rem] space-y-6">
+            <div className="flex items-center gap-3 mb-2">
+               <div className="p-2 bg-blue-500/10 rounded-lg text-blue-500">
+                  <Shield size={20} />
+               </div>
+               <h3 className="text-lg font-black text-white uppercase tracking-tight">Operator Identity</h3>
+            </div>
+            <p className="text-xs text-zinc-500 font-medium leading-relaxed">
+               Share this unique ID with your Team Owner to be added to the organization's secure node.
+            </p>
+            <div className="flex items-center gap-3">
+               <div className="flex-1 p-4 bg-black rounded-xl border border-zinc-800 font-mono text-xs text-zinc-300 truncate">
+                  {currentUid}
+               </div>
+               <button 
+                  onClick={handleCopyUid}
+                  className="p-4 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl transition-all border border-zinc-700/50"
+               >
+                  {copied ? <CheckCircle size={16} className="text-emerald-500" /> : <Copy size={16} />}
+               </button>
+            </div>
+         </div>
+
+         {/* The Owner: Invite Input */}
+         <div className="p-8 bg-zinc-900 border border-zinc-800 rounded-[2rem] space-y-6">
+            <div className="flex items-center gap-3 mb-2">
+               <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-500">
+                  <UserPlus size={20} />
+               </div>
+               <h3 className="text-lg font-black text-white uppercase tracking-tight">Add Team Member</h3>
+            </div>
+            <p className="text-xs text-zinc-500 font-medium leading-relaxed">
+               Paste an operator's UID below to instantly grant them access to this organization's audit history.
+            </p>
+            <div className="flex items-center gap-3">
+               <input 
+                  type="text"
+                  placeholder="Paste Colleague UID..."
+                  value={inviteUid}
+                  onChange={(e) => setInviteUid(e.target.value)}
+                  className="flex-1 p-4 bg-black rounded-xl border border-zinc-800 font-mono text-xs text-white placeholder:text-zinc-700 outline-none focus:border-emerald-500/50 transition-all"
+               />
+               <button 
+                  onClick={handleInvite}
+                  disabled={isLoading || !inviteUid}
+                  className="px-6 py-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-emerald-500/10 flex items-center gap-2"
+               >
+                  {isLoading ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} />}
+                  Add
+               </button>
+            </div>
+            {feedback && (
+               <div className={`flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest ${feedback.type === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>
+                  {feedback.type === 'success' ? <CheckCircle size={12} /> : <AlertCircle size={12} />}
+                  {feedback.msg}
+               </div>
+            )}
+         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
