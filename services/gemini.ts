@@ -3,7 +3,8 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 const getAI = () => {
   // Safe access to API Key with process.env
-  const apiKey = process.env.API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+  // Prioritize NEXT_PUBLIC_GEMINI_API_KEY as requested for Vercel environments
+  const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY || '';
   if (!apiKey) {
     console.warn("Gemini API Key is missing. Check your Vercel or local environment variables.");
   }
