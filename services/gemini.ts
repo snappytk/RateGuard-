@@ -1,7 +1,13 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 
 const getAI = () => {
-  return new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // Safe access to API Key with process.env
+  const apiKey = process.env.API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+  if (!apiKey) {
+    console.warn("Gemini API Key is missing. Check your Vercel or local environment variables.");
+  }
+  return new GoogleGenAI({ apiKey });
 };
 
 export const extractQuoteData = async (imageBase64: string) => {
