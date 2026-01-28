@@ -346,13 +346,13 @@ export const listenToOrgAudits = (orgId: string, callback: (audits: Audit[]) => 
   }
 };
 
-// --- EXISTING QUOTE LOGIC ---
+// --- QUOTE LOGIC (Org-Based) ---
 
-export const fetchUserQuotes = async (userId: string): Promise<QuoteData[]> => {
+export const fetchOrgQuotes = async (orgId: string): Promise<QuoteData[]> => {
   try {
     const q = query(
       collection(db, "quotes"),
-      where("userId", "==", userId),
+      where("orgId", "==", orgId),
       orderBy("createdAt", "desc")
     );
     const querySnapshot = await getDocs(q);
@@ -368,7 +368,7 @@ export const fetchUserQuotes = async (userId: string): Promise<QuoteData[]> => {
   }
 };
 
-export const saveQuoteToFirestore = async (userId: string, quoteData: Partial<QuoteData>, pdfBase64: string, geminiRaw: any) => {
+export const saveQuoteToFirestore = async (userId: string, orgId: string, quoteData: Partial<QuoteData>, pdfBase64: string, geminiRaw: any) => {
   try {
     const quoteSize = new Blob([pdfBase64]).size;
     if (quoteSize > 1048487) {
@@ -377,6 +377,7 @@ export const saveQuoteToFirestore = async (userId: string, quoteData: Partial<Qu
 
     const newQuote = {
       userId,
+      orgId, // Critical for org-based access rules
       status: quoteData.totalCost && quoteData.totalCost > 2000 ? 'flagged' : 'analyzed',
       workflowStatus: 'uploaded',
       carrier: quoteData.carrier || 'Unknown',

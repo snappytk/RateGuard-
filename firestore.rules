@@ -13,12 +13,15 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
     
-    // Quotes: Users can only create quotes for themselves and read their own
+    // Quotes: Org-based Access Control
+    // Read: Allowed if the user belongs to the same Organization as the quote
+    // Create: Allowed if the user creates a quote for their own Organization
     match /quotes/{quoteId} {
-      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid 
+      allow read: if request.auth != null && resource.data.orgId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.orgId;
+      allow create: if request.auth != null 
+                    && request.resource.data.orgId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.orgId
                     && request.resource.data.pdfBase64.size() < 1048576; // Max 1MB
-      allow update: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow update: if request.auth != null && resource.data.orgId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.orgId;
     }
     
     // Rates: Allow access for authenticated users (required for Dashboard simulation)
@@ -28,7 +31,7 @@ service cloud.firestore {
 
     // Audits: Allow read for org members
     match /audits/{auditId} {
-      allow read: if request.auth != null; // Refine to org-match in production
+      allow read: if request.auth != null; // Refine to org-match in production if necessary
       allow create: if request.auth != null;
     }
     

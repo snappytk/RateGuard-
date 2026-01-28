@@ -53,6 +53,12 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
       setErrorMsg("Insufficient Credits. Please upgrade to Enterprise.");
       return;
     }
+    
+    // Ensure OrgId exists
+    if (!userProfile.orgId) {
+        setErrorMsg("Organization Profile not fully synced. Please refresh.");
+        return;
+    }
 
     setIsUploading(true);
     setErrorMsg(null);
@@ -68,7 +74,8 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
         
         // 3. Save to Firestore (Quotes Collection)
         const result = await saveQuoteToFirestore(
-          userProfile.uid, 
+          userProfile.uid,
+          userProfile.orgId!, // Pass OrgId
           extracted, 
           base64, 
           extracted // geminiRaw
@@ -79,6 +86,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
           const newQuote: QuoteData = {
              id: result.id,
              userId: userProfile.uid,
+             orgId: userProfile.orgId!,
              ...extracted,
              status: extracted.totalCost > 2000 ? 'flagged' : 'analyzed',
              workflowStatus: 'uploaded',
@@ -171,7 +179,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
               <p className={`text-[10px] font-black tracking-[0.3em] uppercase ${userProfile?.credits === 0 && userProfile.role !== 'enterprise' ? 'text-red-500' : 'text-zinc-500'}`}>
                 {userProfile?.credits === 0 && userProfile.role !== 'enterprise' ? "Credits Depleted" : "Drop Carrier Quote"}
               </p>
-              <p className="text-[9px] font-bold text-zinc-700 uppercase mt-1">
+              <p className="text-zinc-700 text-[9px] font-bold uppercase mt-1">
                 {userProfile?.credits === 0 && userProfile.role !== 'enterprise' ? "Upgrade to Enterprise for Unlimited" : "PDF / JPG (Max 1MB)"}
               </p>
             </div>

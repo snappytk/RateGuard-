@@ -23,7 +23,7 @@ import TermsAndConditions from './TermsAndConditions';
 import CookiePolicy from './CookiePolicy';
 import PaymentPage from './PaymentPage';
 import { AppView, QuoteData, UserProfile } from '../types';
-import { fetchUserQuotes } from '../services/firebase';
+import { fetchOrgQuotes } from '../services/firebase';
 
 interface DashboardProps {
   currentView: AppView;
@@ -43,13 +43,13 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
 
   useEffect(() => {
     const loadData = async () => {
-      if (userProfile?.uid) {
-        const userQuotes = await fetchUserQuotes(userProfile.uid);
-        setQuotes(userQuotes);
+      if (userProfile?.orgId) {
+        const orgQuotes = await fetchOrgQuotes(userProfile.orgId);
+        setQuotes(orgQuotes);
       }
     };
     loadData();
-  }, [userProfile?.uid]);
+  }, [userProfile?.orgId]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

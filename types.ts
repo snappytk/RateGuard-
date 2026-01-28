@@ -17,6 +17,7 @@ export interface TeamMember {
 export interface QuoteData {
   id: string; // Firestore AutoID
   userId: string;
+  orgId: string; // Added for Organization-based filtering
   carrier: string;
   origin: string;
   destination: string;
