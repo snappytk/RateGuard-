@@ -40,7 +40,16 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
       return;
     }
     
-    if (!userProfile.orgId) {
+    // Capture IDs immediately to ensure they are available in the async callback
+    const currentUid = userProfile.uid;
+    const currentOrgId = userProfile.orgId;
+
+    if (!currentUid) {
+        setErrorMsg("User Profile invalid. Please reload.");
+        return;
+    }
+
+    if (!currentOrgId) {
         setErrorMsg("Organization Profile missing. Please refresh.");
         return;
     }
@@ -62,8 +71,8 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
         setStatusText("Gemini: Structuring Data...");
 
         const result = await saveQuoteToFirestore(
-          userProfile.uid,
-          userProfile.orgId!,
+          currentUid,
+          currentOrgId,
           extracted, 
           base64, 
           extracted
@@ -72,8 +81,8 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
         if (result.success) {
           const newQuote: QuoteData = {
              id: result.id,
-             userId: userProfile.uid,
-             orgId: userProfile.orgId!,
+             userId: currentUid,
+             orgId: currentOrgId,
              ...extracted,
              // Explicit fallback for new FX fields if extraction missed them to prevent runtime crash
              bank: extracted.bank || 'Unknown Bank',

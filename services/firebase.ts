@@ -203,11 +203,15 @@ export const fetchOrgQuotes = async (orgId: string): Promise<QuoteData[]> => {
 
 export const saveQuoteToFirestore = async (userId: string, orgId: string, quoteData: Partial<QuoteData>, pdfBase64: string, geminiRaw: any): Promise<{success: true, id: string, [key: string]: any} | {success: false, error: any}> => {
   try {
+    // Validation to prevent "Unsupported field value: undefined" errors
+    if (!userId) throw new Error("User ID is missing.");
+    if (!orgId) throw new Error("Organization ID is missing.");
+
     const quoteSize = new Blob([pdfBase64]).size;
     if (quoteSize > 1048487) throw new Error("File too large (< 1MB only).");
 
     // Calculate approximate markup based on 2% assumption if not provided
-    const amount = quoteData.amount || 0;
+    const amount = Number(quoteData.amount) || 0;
     const markupCost = amount * 0.022; // 2.2% default markup assumption for calculation
     
     const newQuote = {
@@ -218,7 +222,7 @@ export const saveQuoteToFirestore = async (userId: string, orgId: string, quoteD
       bank: quoteData.bank || 'Unknown Bank',
       pair: quoteData.pair || 'USD/EUR',
       amount: amount,
-      exchangeRate: quoteData.exchangeRate || 1.0,
+      exchangeRate: Number(quoteData.exchangeRate) || 1.0,
       markupCost: markupCost,
       fees: quoteData.fees || [],
       valueDate: quoteData.valueDate || new Date().toISOString().split('T')[0],
@@ -229,7 +233,10 @@ export const saveQuoteToFirestore = async (userId: string, orgId: string, quoteD
       notes: []
     };
 
-    const docRef = await addDoc(collection(db, "quotes"), newQuote);
+    // Sanitize the object to remove any 'undefined' values which Firestore rejects
+    const sanitizedQuote = JSON.parse(JSON.stringify(newQuote));
+
+    const docRef = await addDoc(collection(db, "quotes"), sanitizedQuote);
     await updateDoc(doc(db, "users", userId), { credits: increment(-1) });
 
     return { success: true, id: docRef.id, ...newQuote };
