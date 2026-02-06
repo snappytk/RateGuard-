@@ -57,8 +57,8 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
     const userRef = doc(db, "users", user.uid);
     let userSnap = await getDoc(userRef);
 
-    if (!userSnap.exists()) {
-      const newUserData: UserProfile = {
+    // Define Default Schema
+    const defaultProfile: UserProfile = {
         uid: user.uid,
         email: user.email,
         displayName: user.displayName || 'Agent',
@@ -67,30 +67,83 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
         hasSeenIntro: false,
         createdAt: Date.now(),
         lastSeen: Date.now(),
-        orgId: undefined
-      };
+        companyName: '',
+        country: '',
+        taxID: ''
+        // orgId is intentionally undefined by default
+    };
+
+    // 1. AUTO-CREATE IF MISSING
+    if (!userSnap.exists()) {
+      // Deep copy to ensure clean object for Firestore (removes undefined)
+      const firestoreData = JSON.parse(JSON.stringify(defaultProfile));
+      await setDoc(userRef, firestoreData);
       
-      await setDoc(userRef, newUserData);
+      // Initialize Settings
       await setDoc(doc(db, "settings", user.uid), {
-        profitThreshold: 2.0, // Changed to 2.0% markup threshold
+        profitThreshold: 2.0,
         autoAudit: true,
         notifications: { email: true }
       });
+      
       userSnap = await getDoc(userRef);
     }
 
-    const userData = userSnap.data() as UserProfile;
+    // 2. AUTO-REPAIR (Schema Evolution & Data Integrity)
+    // Ensures that even if the doc existed, missing fields are backfilled.
+    const currentData = userSnap.data();
+    const updates: any = {};
+    let isDirty = false;
 
+    if (!currentData.uid) { updates.uid = user.uid; isDirty = true; }
+    if (currentData.credits === undefined) { updates.credits = 5; isDirty = true; }
+    if (!currentData.role) { updates.role = 'member'; isDirty = true; }
+    if (currentData.hasSeenIntro === undefined) { updates.hasSeenIntro = false; isDirty = true; }
+    
+    // Ensure Settings Document exists
+    const settingsRef = doc(db, "settings", user.uid);
+    const settingsSnap = await getDoc(settingsRef);
+    if (!settingsSnap.exists()) {
+        await setDoc(settingsRef, {
+            profitThreshold: 2.0,
+            autoAudit: true,
+            notifications: { email: true }
+        });
+    }
+
+    if (isDirty) {
+        await updateDoc(userRef, updates);
+        userSnap = await getDoc(userRef); // Refresh
+    }
+
+    // Merge DB data with default profile to ensure the APP never sees undefined keys
+    const userData = { ...defaultProfile, ...userSnap.data() } as UserProfile;
+
+    // 3. ORG SYNC & REPAIR
     if (userData.orgId) {
        const orgSnap = await getDoc(doc(db, "organizations", userData.orgId));
        if (orgSnap.exists()) {
+         // Update activity timestamp
+         await updateDoc(userRef, { lastSeen: Date.now() });
+         
+         const orgData = orgSnap.data() as Organization;
+         
+         // Consistency Check: Ensure user is actually in the org's member list
+         if (orgData.members && !orgData.members.includes(user.uid)) {
+             await updateDoc(doc(db, "organizations", userData.orgId), {
+                 members: arrayUnion(user.uid)
+             });
+         }
+
          return {
            userProfile: userData,
-           orgProfile: { id: orgSnap.id, ...orgSnap.data() } as Organization
+           orgProfile: { id: orgSnap.id, ...orgData } as Organization
          };
        } else {
+         // FAIL-SAFE: User points to a deleted/missing Org. Repair the user record.
+         console.warn("Orphaned Org ID detected. Repairing user profile...");
          await updateDoc(userRef, { orgId: null });
-         userData.orgId = undefined;
+         userData.orgId = undefined; 
        }
     }
 
@@ -98,7 +151,19 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
 
   } catch (error) {
     console.error("Critical Sync Error:", error);
-    throw error;
+    // FALLBACK: Return a usable transient profile so the app doesn't crash to white screen
+    return { 
+        userProfile: {
+            uid: user.uid,
+            email: user.email,
+            displayName: user.displayName || 'Offline User',
+            role: 'member',
+            credits: 0,
+            hasSeenIntro: false,
+            createdAt: Date.now()
+        }, 
+        orgProfile: null 
+    };
   }
 };
 
