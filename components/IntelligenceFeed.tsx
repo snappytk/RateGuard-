@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { FileText, Loader2, AlertTriangle, MessageSquare, X, Send, Cpu, Search, Lock } from 'lucide-react';
+import { FileText, Loader2, AlertTriangle, MessageSquare, X, Send, Cpu, Search, Lock, ScanLine } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { extractQuoteData } from '../services/gemini';
 import { saveQuoteToFirestore, logAnalyticsEvent } from '../services/firebase';
@@ -17,6 +17,7 @@ interface IntelligenceFeedProps {
 
 const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote, onUpdateQuote, userProfile, isEnterprise, onProfileUpdate }) => {
   const [isUploading, setIsUploading] = useState(false);
+  const [statusText, setStatusText] = useState('Initializing Node...');
   const [activeQuoteId, setActiveQuoteId] = useState<string | null>(null);
   const [newComment, setNewComment] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -45,6 +46,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
     }
 
     setIsUploading(true);
+    setStatusText("DeepSeek OCR: Scanning Document...");
     setErrorMsg(null);
     logAnalyticsEvent('analysis_started', { fileSize: file.size });
 
@@ -52,8 +54,12 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
     reader.onload = async (e) => {
       try {
         const base64 = (e.target?.result as string).split(',')[1];
+        
+        // The service now handles the 1s delay and the DeepSeek -> Gemini chain
         const extracted = await extractQuoteData(base64);
         
+        setStatusText("Gemini: Structuring Data...");
+
         const result = await saveQuoteToFirestore(
           userProfile.uid,
           userProfile.orgId!,
@@ -95,6 +101,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
         setErrorMsg(error.toString());
       } finally { 
         setIsUploading(false); 
+        setStatusText("Idle");
       }
     };
     reader.readAsDataURL(file);
@@ -168,10 +175,19 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 className="absolute inset-0 bg-[#0e121b]/95 flex flex-col items-center justify-center rounded-[2rem] backdrop-blur-xl z-20"
               >
-                <div className="flex flex-col items-center gap-4">
-                  <div className="flex items-center gap-3">
-                    <Cpu className="text-blue-500 animate-spin-slow" size={20} />
-                    <span className="text-[10px] font-black text-blue-500 uppercase tracking-[0.3em] animate-pulse">Atlas Analyzing Spread...</span>
+                <div className="flex flex-col items-center gap-6">
+                  <div className="relative">
+                    <ScanLine className="text-blue-500 animate-pulse" size={48} />
+                    <div className="absolute inset-0 bg-blue-500/20 blur-xl rounded-full" />
+                  </div>
+                  
+                  <div className="flex flex-col items-center gap-2">
+                    <span className="text-xs font-black text-white uppercase tracking-[0.2em]">{statusText}</span>
+                    <div className="flex gap-1">
+                      <div className="w-1 h-1 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
+                      <div className="w-1 h-1 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
+                      <div className="w-1 h-1 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                    </div>
                   </div>
                 </div>
               </motion.div>
