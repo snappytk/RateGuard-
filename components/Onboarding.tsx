@@ -1,16 +1,18 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Building2, Target, Globe, Users, ArrowRight, Loader2, ShieldCheck, MapPin, FileText, Share2, Plus, LogIn } from 'lucide-react';
 import { updateComplianceProfile, createOrganization, joinOrganization, auth } from '../services/firebase';
+import { UserProfile } from '../types';
 
 interface OnboardingProps {
   onComplete: (data: any) => void;
+  userProfile?: UserProfile | null;
 }
 
-type OnboardingMode = 'select' | 'create' | 'join';
+type OnboardingMode = 'select' | 'create' | 'join' | 'compliance';
 
-const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
+const Onboarding: React.FC<OnboardingProps> = ({ onComplete, userProfile }) => {
   const [mode, setMode] = useState<OnboardingMode>('select');
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -19,7 +21,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
   // Join State
   const [joinCode, setJoinCode] = useState('');
 
-  // Create State
+  // Create/Compliance State
   const [formData, setFormData] = useState({
     companyName: '',
     country: 'US',
@@ -27,6 +29,20 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
     profitGoal: 15,
     currency: 'USD',
   });
+
+  // Smart State Detection
+  useEffect(() => {
+    if (userProfile?.orgId && (!userProfile.taxID || !userProfile.country)) {
+      setMode('compliance');
+      // Pre-fill form if data exists partially
+      setFormData(prev => ({
+         ...prev,
+         companyName: userProfile.companyName || prev.companyName,
+         country: userProfile.country || prev.country,
+         taxID: userProfile.taxID || prev.taxID
+      }));
+    }
+  }, [userProfile]);
 
   const handleCreateSubmit = async () => {
     if (!auth.currentUser) return;
@@ -45,14 +61,31 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
         companyName: formData.companyName,
         country: formData.country,
         taxID: formData.taxID,
-        // orgId is handled inside createOrganization transaction usually, 
-        // but let's ensure compliance data is there
       });
 
       onComplete({ ...formData, orgId });
     } catch (e: any) {
       console.error(e);
       setError("Failed to initialize node. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleComplianceSubmit = async () => {
+    if (!auth.currentUser) return;
+    setLoading(true);
+    try {
+      // Only update profile, do not create new Org
+      await updateComplianceProfile(auth.currentUser.uid, {
+        companyName: formData.companyName,
+        country: formData.country,
+        taxID: formData.taxID,
+      });
+      onComplete(formData);
+    } catch (e: any) {
+      console.error(e);
+      setError("Failed to update compliance profile.");
     } finally {
       setLoading(false);
     }
@@ -176,14 +209,17 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
              </motion.div>
           )}
 
-          {mode === 'create' && (
+          {(mode === 'create' || mode === 'compliance') && (
             <motion.div key="create-flow" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
-               {/* Reusing existing Step logic for creation flow */}
                {step === 1 && (
                   <div className="space-y-6">
                      <div className="space-y-2">
-                        <h2 className="text-2xl font-black text-white uppercase">Corporate Identity</h2>
-                        <p className="text-zinc-500 text-sm">Register your legal entity.</p>
+                        <h2 className="text-2xl font-black text-white uppercase">
+                           {mode === 'compliance' ? 'Complete Profile' : 'Corporate Identity'}
+                        </h2>
+                        <p className="text-zinc-500 text-sm">
+                           {mode === 'compliance' ? 'Update missing compliance data.' : 'Register your legal entity.'}
+                        </p>
                      </div>
                      <div className="space-y-4">
                         <input 
@@ -202,7 +238,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                         />
                      </div>
                      <div className="flex gap-4">
-                        <button onClick={() => setMode('select')} className="px-6 py-4 rounded-xl bg-zinc-900 text-zinc-500 text-xs font-bold uppercase">Back</button>
+                        {mode !== 'compliance' && <button onClick={() => setMode('select')} className="px-6 py-4 rounded-xl bg-zinc-900 text-zinc-500 text-xs font-bold uppercase">Back</button>}
                         <button onClick={nextStep} disabled={!formData.companyName} className="flex-1 bg-blue-600 text-white rounded-xl font-bold uppercase text-xs">Next</button>
                      </div>
                   </div>
@@ -227,8 +263,12 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                      </div>
                      <div className="flex gap-4">
                         <button onClick={prevStep} className="px-6 py-4 rounded-xl bg-zinc-900 text-zinc-500 text-xs font-bold uppercase">Back</button>
-                        <button onClick={handleCreateSubmit} disabled={loading} className="flex-1 bg-blue-600 text-white rounded-xl font-bold uppercase text-xs flex items-center justify-center gap-2">
-                           {loading ? <Loader2 className="animate-spin" /> : 'Launch Node'}
+                        <button 
+                           onClick={mode === 'compliance' ? handleComplianceSubmit : handleCreateSubmit} 
+                           disabled={loading} 
+                           className="flex-1 bg-blue-600 text-white rounded-xl font-bold uppercase text-xs flex items-center justify-center gap-2"
+                        >
+                           {loading ? <Loader2 className="animate-spin" /> : (mode === 'compliance' ? 'Update Node' : 'Launch Node')}
                         </button>
                      </div>
                   </div>

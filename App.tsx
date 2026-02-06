@@ -107,7 +107,10 @@ const App: React.FC = () => {
         )}
 
         {view === 'onboarding' && (
-          <Onboarding onComplete={handleOnboardingComplete} />
+          <Onboarding 
+            onComplete={handleOnboardingComplete} 
+            userProfile={userProfile} 
+          />
         )}
 
         {view !== 'landing' && view !== 'onboarding' && (
