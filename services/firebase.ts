@@ -292,6 +292,7 @@ export const saveQuoteToFirestore = async (userId: string, orgId: string, quoteD
       exchangeRate: Number(quoteData.exchangeRate) || 1.0,
       midMarketRate: Number(quoteData.midMarketRate) || 0, // Ensure this is saved
       markupCost: markupCost,
+      totalCost: Number(quoteData.totalCost) || 0, // NEW: explicitly save total cost
       fees: quoteData.fees || [],
       valueDate: quoteData.valueDate || new Date().toISOString().split('T')[0],
       disputeDrafted: !!quoteData.disputeDrafted,

@@ -23,7 +23,8 @@ export interface QuoteData {
   amount: number; // The principal amount
   exchangeRate: number; // The executed rate
   midMarketRate?: number; // The fair rate at that time
-  markupCost: number; // The hidden fee calculated
+  markupCost: number; // The hidden fee calculated (Spread cost)
+  totalCost?: number; // Total cost including explicit fees and spread
   fees: Array<{ name: string; amount: number }>; // Explicit fees
   valueDate: string; // Settlement date
   status: 'pending' | 'analyzed' | 'flagged' | 'optimal';

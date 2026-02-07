@@ -81,7 +81,7 @@ const RATEGUARD_SYSTEM_INSTRUCTION = `You are RateGuard FX Analyzer, a specializ
 
 3. **EXCHANGE RATE ANALYSIS**:
    - Bank Rate = rate shown in document
-   - Mid-Market Rate = you lookup current rate for timestamp (estimate closely if precise data unavailable)
+   - Mid-Market Rate = you lookup current rate for timestamp
    - Spread % = ((Bank Rate - Mid-Market Rate) / Mid-Market Rate) × 100
    - If Bank Rate < Mid-Market Rate (rare), spread is negative (bank gave better rate)
 
@@ -89,6 +89,78 @@ const RATEGUARD_SYSTEM_INSTRUCTION = `You are RateGuard FX Analyzer, a specializ
    - Original Amount: Amount BEFORE conversion (e.g., $50,000.00 USD)
    - Converted Amount: Amount AFTER conversion (e.g., €45,600.00 EUR)
    - Never confuse these
+
+## OUTPUT FORMAT - STRICT JSON
+
+{
+  "extraction": {
+    "bank_name": "JPMORGAN CHASE BANK, N.A.",
+    "transaction_date": "2024-01-15",
+    "transaction_time": "09:23:47 EST",
+    "reference_number": "WT-2024-0115-78432",
+    "sender_name": "ACME IMPORT EXPORT LLC",
+    "sender_account_masked": "****4521",
+    "beneficiary_name": "EURO SUPPLIERS GMBH",
+    "beneficiary_bank": "DEUTSCHE BANK AG, FRANKFURT",
+    "swift_bic": "DEUTDEFFXXX",
+    "iban": "DE89370400440532013000"
+  },
+  "transaction": {
+    "original_amount": 50000.00,
+    "original_currency": "USD",
+    "converted_amount": 45600.00,
+    "converted_currency": "EUR",
+    "exchange_rate_bank": 0.9120,
+    "currency_pair": "USD/EUR",
+    "value_date": "2024-01-15"
+  },
+  "fees": {
+    "items": [
+      {
+        "type": "Wire Transfer Fee",
+        "amount": 35.00,
+        "currency": "USD"
+      },
+      {
+        "type": "Foreign Exchange Fee",
+        "amount": 125.00,
+        "currency": "USD",
+        "percentage": "0.25%"
+      },
+      {
+        "type": "Correspondent Bank Fee",
+        "amount": 20.00,
+        "currency": "USD"
+      }
+    ],
+    "total_fees": 180.00,
+    "total_fees_currency": "USD",
+    "fee_calculation_verified": "35.00 + 125.00 + 20.00 = 180.00"
+  },
+  "analysis": {
+    "mid_market_rate": 0.9250,
+    "rate_source": "XE.com historical for 2024-01-15 09:23 EST",
+    "bank_spread_percentage": 1.405,
+    "bank_spread_calculation": "((0.9250 - 0.9120) / 0.9250) × 100 = 1.405%",
+    "cost_of_spread_usd": 703.13,
+    "cost_of_spread_calculation": "50000 × (0.9250 - 0.9120) / 0.9250 = 703.13",
+    "total_cost_usd": 883.13,
+    "total_cost_breakdown": "Spread cost $703.13 + Fees $180.00 = $883.13",
+    "annualized_cost_if_monthly": 10597.56,
+    "annualized_calculation": "883.13 × 12 = 10597.56"
+  },
+  "dispute": {
+    "recommended": true,
+    "reason": "Spread 1.405% above mid-market is above typical 0.5-1.0% for this volume",
+    "suggested_rate_negotiation": 0.9180,
+    "potential_annual_savings": 4239.02
+  },
+  "verification": {
+    "math_check": "45600 EUR ÷ 50000 USD = 0.9120 ✓ Matches document rate",
+    "fee_check": "35 + 125 + 20 = 180 ✓ Matches document total",
+    "completeness_score": "10/10 - All fields extracted"
+  }
+}
 
 ## CALCULATION STEPS - FOLLOW EXACTLY
 
@@ -101,6 +173,15 @@ Step 6: Add fees to get total transaction cost
 Step 7: Annualize if regular transaction pattern detected
 Step 8: Generate dispute recommendation with specific rate target
 
+## ERROR PREVENTION CHECKLIST
+
+Before outputting, verify:
+- [ ] Fee total = sum of individual fees (not inflated)
+- [ ] Currency pair direction is correct (From/To)
+- [ ] Exchange rate matches document exactly
+- [ ] All percentages calculated correctly
+- [ ] Annualized figures use correct multiplier
+
 ## SPECIAL CASES
 
 **If fees section is unclear or missing:**
@@ -111,6 +192,9 @@ Step 8: Generate dispute recommendation with specific rate target
 **If exchange rate is missing:**
 - Calculate from Original ÷ Converted amounts
 - Add note: "Rate calculated from amounts, not explicitly stated"
+
+**If document is not an FX transaction:**
+- Return error object: {"error": "Not an FX transaction", "document_type": "detected_type"}
 `;
 
 export const extractQuoteData = async (base64: string, mimeType: string = 'image/jpeg') => {
@@ -168,7 +252,11 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
               transaction_time: { type: Type.STRING },
               reference_number: { type: Type.STRING },
               sender_name: { type: Type.STRING },
-              beneficiary_name: { type: Type.STRING }
+              sender_account_masked: { type: Type.STRING },
+              beneficiary_name: { type: Type.STRING },
+              beneficiary_bank: { type: Type.STRING },
+              swift_bic: { type: Type.STRING },
+              iban: { type: Type.STRING }
             }
           },
           transaction: {
@@ -194,21 +282,29 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
                   properties: {
                     type: { type: Type.STRING },
                     amount: { type: Type.NUMBER },
-                    currency: { type: Type.STRING }
+                    currency: { type: Type.STRING },
+                    percentage: { type: Type.STRING }
                   }
                 }
               },
               total_fees: { type: Type.NUMBER },
-              total_fees_currency: { type: Type.STRING }
+              total_fees_currency: { type: Type.STRING },
+              fee_calculation_verified: { type: Type.STRING }
             }
           },
           analysis: {
             type: Type.OBJECT,
             properties: {
               mid_market_rate: { type: Type.NUMBER },
+              rate_source: { type: Type.STRING },
               bank_spread_percentage: { type: Type.NUMBER },
+              bank_spread_calculation: { type: Type.STRING },
               cost_of_spread_usd: { type: Type.NUMBER },
-              total_cost_usd: { type: Type.NUMBER }
+              cost_of_spread_calculation: { type: Type.STRING },
+              total_cost_usd: { type: Type.NUMBER },
+              total_cost_breakdown: { type: Type.STRING },
+              annualized_cost_if_monthly: { type: Type.NUMBER },
+              annualized_calculation: { type: Type.STRING }
             }
           },
           dispute: {
@@ -223,6 +319,8 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
           verification: {
             type: Type.OBJECT,
             properties: {
+              math_check: { type: Type.STRING },
+              fee_check: { type: Type.STRING },
               completeness_score: { type: Type.STRING }
             }
           }

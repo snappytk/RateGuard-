@@ -78,6 +78,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
             valueDate: extracted.transaction?.value_date || new Date().toISOString().split('T')[0],
             markupCost: extracted.analysis?.cost_of_spread_usd || 0,
             midMarketRate: extracted.analysis?.mid_market_rate || 0,
+            totalCost: extracted.analysis?.total_cost_usd || 0,
             disputeDrafted: extracted.dispute?.recommended || false
         };
 
