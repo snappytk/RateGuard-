@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { ShieldCheck, Zap, CheckCircle, CreditCard, Loader2 } from 'lucide-react';
+import { ShieldCheck, Zap, CheckCircle, CreditCard } from 'lucide-react';
 import { processEnterpriseUpgrade, auth } from '../services/firebase';
 
 interface PaymentPageProps {
@@ -7,95 +7,64 @@ interface PaymentPageProps {
 }
 
 const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
-  const [isProcessing, setIsProcessing] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [scriptLoaded, setScriptLoaded] = useState(false);
   const paypalRef = useRef<HTMLDivElement>(null);
 
-  // Helper for Robust Env Vars
-  const getEnv = (key: string) => {
-    if (typeof process !== 'undefined' && process.env) {
-      return process.env[`VITE_${key}`] || 
-             process.env[`NEXT_PUBLIC_${key}`] || 
-             process.env[key] || 
-             '';
-    }
-    if (import.meta && import.meta.env) {
-      return import.meta.env[`VITE_${key}`] || 
-             import.meta.env[`NEXT_PUBLIC_${key}`] || 
-             import.meta.env[key] || 
-             '';
-    }
-    return '';
-  };
-
-  const CLIENT_ID = getEnv("PAYPAL_CLIENT_ID") || "AcfpjwLgDGThXpyOnYWUoWdFG7SM_h485vJULqGENmPyeiwfD20Prjfx6xRrqYOSZlM4s-Rnh3OfjXhk";
-  const PLAN_ID = "P-1UB7789392647964ANF3SL4I";
-
   useEffect(() => {
-    // 1. Load PayPal Script Directly
-    if (!(window as any).paypal) {
-      const script = document.createElement('script');
-      script.src = `https://www.paypal.com/sdk/js?client-id=${CLIENT_ID}&vault=true&intent=subscription`;
-      script.setAttribute('data-sdk-integration-source', 'button-factory');
-      script.async = true;
-      script.onload = () => setScriptLoaded(true);
-      document.body.appendChild(script);
-    } else {
-      setScriptLoaded(true);
-    }
-  }, [CLIENT_ID]);
+    // Check for global paypal object
+    const checkForPayPal = setInterval(() => {
+      if ((window as any).paypal && paypalRef.current) {
+        clearInterval(checkForPayPal);
+        renderPayPalButtons();
+      }
+    }, 100);
 
-  useEffect(() => {
-    // 2. Render Buttons
-    if (scriptLoaded && (window as any).paypal && paypalRef.current && orgId) {
-       // Clear container to prevent duplicate buttons
-       paypalRef.current.innerHTML = "";
+    return () => clearInterval(checkForPayPal);
+  }, [orgId]);
 
-       const uid = auth.currentUser?.uid;
-       if (!uid) return;
+  const renderPayPalButtons = () => {
+    if (!paypalRef.current || paypalRef.current.innerHTML !== "") return;
 
-       try {
-         (window as any).paypal.Buttons({
-            style: {
-                shape: 'rect',
-                color: 'gold',
-                layout: 'vertical',
-                label: 'subscribe'
-            },
-            createSubscription: function(data: any, actions: any) {
-              return actions.subscription.create({
-                plan_id: PLAN_ID
-              });
-            },
-            onApprove: function(data: any, actions: any) {
-              setIsProcessing(true);
-              processEnterpriseUpgrade(uid, orgId, data.subscriptionID).then((upgraded) => {
-                 if (upgraded) {
-                   setSuccess(true);
-                   setTimeout(() => window.location.reload(), 2000);
-                 } else {
-                   alert("Payment verified, but account sync failed. Please contact support.");
-                 }
-                 setIsProcessing(false);
-              });
-            },
-            onError: (err: any) => {
-               console.error("PayPal Error:", err);
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+
+    try {
+      (window as any).paypal.Buttons({
+        style: {
+            shape: 'rect',
+            color: 'gold',
+            layout: 'vertical',
+            label: 'subscribe'
+        },
+        createSubscription: function(data: any, actions: any) {
+          return actions.subscription.create({
+            plan_id: 'P-1UB7789392647964ANF3SL4I'
+          });
+        },
+        onApprove: function(data: any, actions: any) {
+          processEnterpriseUpgrade(uid, orgId, data.subscriptionID).then((upgraded) => {
+            if (upgraded) {
+              setSuccess(true);
+              setTimeout(() => window.location.reload(), 2000);
+            } else {
+              alert("Payment verified, but account sync failed. Please contact support.");
             }
-         }).render(paypalRef.current);
-
-       } catch (err) {
-         console.error("Button Render Failed:", err);
-       }
+          });
+        },
+        onError: (err: any) => {
+           console.error("PayPal Error:", err);
+        }
+      }).render(paypalRef.current);
+    } catch (err) {
+      console.error("Failed to render PayPal buttons:", err);
     }
-  }, [scriptLoaded, orgId]);
+  };
 
   if (success) {
      return (
-        <div className="flex items-center justify-center min-h-[60vh] text-center animate-in fade-in zoom-in duration-500">
+        <div className="flex items-center justify-center min-h-[60vh] text-center">
            <div className="space-y-6">
-              <div className="w-24 h-24 bg-emerald-500/20 rounded-full flex items-center justify-center text-emerald-500 mx-auto border border-emerald-500/30 shadow-lg shadow-emerald-500/20">
+              <div className="w-24 h-24 bg-emerald-500/20 rounded-full flex items-center justify-center text-emerald-500 mx-auto border border-emerald-500/30">
                  <CheckCircle size={48} />
               </div>
               <div>
@@ -144,13 +113,6 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
         </div>
 
         <div className="bg-white rounded-[2.5rem] p-10 text-zinc-950 space-y-8 shadow-2xl relative overflow-hidden">
-          {isProcessing && (
-             <div className="absolute inset-0 bg-white/95 z-50 flex items-center justify-center flex-col gap-4 backdrop-blur-sm">
-                <Loader2 className="animate-spin text-blue-600" size={40} />
-                <span className="font-black uppercase tracking-widest text-xs">Provisioning Enterprise Node...</span>
-             </div>
-          )}
-
           <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none">
             <CreditCard size={120} className="text-black" />
           </div>
@@ -171,14 +133,7 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
               Secure Checkout via PayPal
             </div>
             
-            <div ref={paypalRef} className="w-full relative z-20 min-h-[150px]">
-              {!scriptLoaded && (
-                <div className="flex items-center justify-center py-4 gap-2 text-zinc-400 border border-zinc-200 rounded-lg">
-                  <Loader2 className="animate-spin" size={16} />
-                  <span className="text-xs font-bold uppercase tracking-widest">Loading Gateway...</span>
-                </div>
-              )}
-            </div>
+            <div ref={paypalRef} className="w-full relative z-20 min-h-[150px]"></div>
           </div>
         </div>
       </div>
