@@ -35,7 +35,24 @@ const performDeepSeekOCR = async (base64: string, mimeType: string): Promise<str
           {
             role: "user",
             content: [
-              { type: "text", text: "Please transcribe all text visible in this document verbatim. Do not summarize, just output the raw text found." },
+              { 
+                type: "text", 
+                text: `Please transcribe all text visible in this document verbatim. 
+                
+                ALSO, extract fees as structured data from this bank document.
+                
+                Return the transcription first, followed by this JSON format:
+                {
+                  "wire_fee": number or null,
+                  "fx_fee": number or null, 
+                  "correspondent_fee": number or null,
+                  "other_fees": number or null,
+                  "total_fees": number or null,
+                  "fee_section_raw_text": "paste exact text here"
+                }
+
+                If a fee is not found, use null.` 
+              },
               {
                 type: "image_url",
                 image_url: {
@@ -218,7 +235,7 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
   const contentsPayload: any = { parts: [] };
 
   const promptText = textToAnalyze 
-    ? `Here is the OCR text transcript of a bank wire or FX trade receipt:
+    ? `Here is the OCR text transcript of a bank wire or FX trade receipt (including DeepSeek's fee extraction JSON at the end):
       
       """
       ${textToAnalyze}
