@@ -55,7 +55,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
     }
 
     setIsUploading(true);
-    setStatusText("DeepSeek OCR: Scanning Document...");
+    setStatusText("GPT-4o Vision: Scanning Document...");
     setErrorMsg(null);
     logAnalyticsEvent('analysis_started', { fileSize: file.size });
 
@@ -64,9 +64,10 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
       try {
         const base64 = (e.target?.result as string).split(',')[1];
         
+        // This now calls OpenAI GPT-4o
         const extracted = await extractQuoteData(base64, file.type);
         
-        setStatusText("Gemini: Structuring Data...");
+        setStatusText("Atlas: Structuring JSON Data...");
 
         // Map specific fields from the complex new AI schema to our flat internal model
         const mappedData: Partial<QuoteData> = {
@@ -106,7 +107,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
              valueDate: mappedData.valueDate || new Date().toISOString().split('T')[0],
              status: (result.markupCost || 0) > 200 ? 'flagged' : 'analyzed',
              workflowStatus: 'uploaded',
-             reliabilityScore: 85,
+             reliabilityScore: 95,
              createdAt: Date.now(),
              notes: [],
              geminiRaw: extracted
@@ -331,3 +332,4 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
 };
 
 export default IntelligenceFeed;
+    

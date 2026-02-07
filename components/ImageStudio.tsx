@@ -72,7 +72,7 @@ const ImageStudio: React.FC = () => {
             Media Studio
             <div className="px-2 py-0.5 bg-blue-500/10 text-blue-500 text-[10px] uppercase tracking-widest rounded border border-blue-500/20">Pro Mode</div>
           </h2>
-          <p className="text-zinc-500">Generate and edit marketing collateral with Gemini 3 Pro & 2.5 Flash.</p>
+          <p className="text-zinc-500">Generate and edit marketing collateral with DALL-E 3.</p>
         </div>
         
         <div className="flex bg-zinc-900 border border-zinc-800 rounded-xl p-1">
@@ -186,7 +186,7 @@ const ImageStudio: React.FC = () => {
               <Sparkles size={20} />
             </div>
             <div>
-              <h4 className="text-sm font-bold text-blue-400 mb-1">Gemini 3 Pro Image</h4>
+              <h4 className="text-sm font-bold text-blue-400 mb-1">DALL-E 3 Generation</h4>
               <p className="text-xs text-zinc-500 leading-relaxed">
                 Utilize high-fidelity generation for marketing displays. Ensure your API billing is active for 2K/4K outputs.
               </p>
@@ -261,3 +261,4 @@ const ImageStudio: React.FC = () => {
 };
 
 export default ImageStudio;
+    
