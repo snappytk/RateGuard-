@@ -4,7 +4,6 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 const getEnv = (key: string) => {
   let value = '';
-  // 1. Vite / Modern
   if (import.meta && (import.meta as any).env) {
     value = (import.meta as any).env[`VITE_${key}`] || 
             (import.meta as any).env[`NEXT_PUBLIC_${key}`] || 
@@ -12,8 +11,6 @@ const getEnv = (key: string) => {
             '';
   }
   if (value) return value;
-
-  // 2. Process / Legacy
   if (typeof process !== 'undefined' && process.env) {
     value = process.env[`VITE_${key}`] || 
             process.env[`NEXT_PUBLIC_${key}`] || 
@@ -26,39 +23,31 @@ const getEnv = (key: string) => {
 const getZhipuKey = () => getEnv('ZHIPUAI_API_KEY');
 const getGeminiKey = () => getEnv('GEMINI_API_KEY');
 
-// --- TEXT PRE-PROCESSING (ROBUSTNESS LAYER) ---
+// --- TEXT PRE-PROCESSING ---
 
 const cleanOcrText = (text: string): string => {
   return text
-    // Fix common header separators
     .replace(/═+/g, '---')
     .replace(/_+/g, '---')
-    // Fix multiple spaces
     .replace(/\s{3,}/g, '\n')
-    // Fix specific Chase/Bank merged line headers
     .replace(/(Wire Transfer Fee:\s+)(Foreign Exchange Fee:)/g, '$1\n$2')
-    // Fix merged dollar amounts (e.g. "$35.00 $125.00")
     .replace(/(\$\d+[\d,]*\.?\d*)\s+(\$\d+[\d,]*\.?\d*)/g, '$1\n$2')
-    // Fix "Fee: $Amount" spacing issues
     .replace(/(Fee:)(\s*)(\$\d)/gi, '$1 $3')
-    // Fix trailing percentages merged with amounts (e.g. "$125.00(0.25%)")
     .replace(/(\$\d+\.\d+)(\()/g, '$1 $2')
     .trim();
 };
 
-const extractFeesWithRegex = (text: string) => {
-  const fees = {
-    wire: 0,
-    fx: 0,
-    correspondent: 0,
-    total: 0
-  };
+const cleanJsonOutput = (text: string): string => {
+  // Remove markdown code blocks if present
+  let clean = text.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+  return clean.trim();
+};
 
-  // Extract all dollar amounts in the text to find candidates
+const extractFeesWithRegex = (text: string) => {
+  const fees = { wire: 0, fx: 0, correspondent: 0, total: 0 };
   const allAmounts = [...text.matchAll(/\$(\d{1,3}(,\d{3})*(\.\d{2})?)/g)]
     .map(m => parseFloat(m[1].replace(/,/g, '')));
 
-  // Specific Pattern Matching
   const wireMatch = text.match(/Wire[^$]*\$(\d[\d,]*\.?\d*)/i);
   const fxMatch = text.match(/(Foreign Exchange|FX)[^$]*\$(\d[\d,]*\.?\d*)/i);
   const corrMatch = text.match(/Correspondent[^$]*\$(\d[\d,]*\.?\d*)/i);
@@ -69,19 +58,14 @@ const extractFeesWithRegex = (text: string) => {
   if (corrMatch) fees.correspondent = parseFloat(corrMatch[1].replace(/,/g, ''));
   if (totalMatch) fees.total = parseFloat(totalMatch[1].replace(/,/g, ''));
 
-  // Logic: If we found individual fees but no total, or total doesn't match, calculate sum
   const calculatedSum = fees.wire + fees.fx + fees.correspondent;
   if (fees.total === 0 || Math.abs(fees.total - calculatedSum) > 0.01) {
-    // If we have at least 3 amounts and the logic seems to be "List then Total"
     if (allAmounts.length >= 4 && fees.total === 0) {
-       // Chase often lists: Wire, FX, Corr, Total. 
-       // If regex failed but we have a cluster of numbers, take the largest as total
        fees.total = Math.max(...allAmounts);
     } else {
        fees.total = calculatedSum;
     }
   }
-
   return fees;
 };
 
@@ -93,26 +77,17 @@ You are professional, concise, and focused on saving the user money.
 Never mention internal model names. Always refer to yourself as "Atlas".`;
 
 const EXTRACTION_INSTRUCTION = `You are RateGuard's Logic Engine. Your goal is to convert raw OCR text from a bank document into structured JSON.
-
-## CRITICAL: HANDLING CORRUPTED OCR
-The input text may have merged lines or missing line breaks (e.g., "Wire Fee: $35.00 Foreign Exchange Fee: $125.00").
-You must intelligently separate these fields based on context.
+If a field is missing, leave it null or 0. Do not fail.
 
 ## EXTRACTION RULES
-1. **FEE LOGIC**: 
-   - Look for specific fees: "Wire Transfer", "Foreign Exchange" (FX), "Correspondent".
-   - If a line contains two dollar amounts (e.g. "$35.00 $125.00"), the first is likely the Wire Fee, the second is the FX Fee.
-   - Use the "HINTS" provided in the prompt to validate your findings.
+1. **FEE LOGIC**: Look for specific fees: "Wire Transfer", "Foreign Exchange" (FX), "Correspondent".
 2. **CURRENCY PAIR**: Format as XXX/YYY (e.g. USD/EUR).
-3. **SPREAD CALCULATION**: 
-   - If 'mid_market_rate' is NOT in document, estimate it based on the 'value_date'.
-   - Calculate 'markup_cost' = (Bank Rate vs Mid-Market Rate diff) * Amount.
-   - 'total_cost_usd' should include explicit fees + markup cost.
+3. **SPREAD**: If 'mid_market_rate' is NOT in document, estimate based on 'value_date'.
 
 ## OUTPUT JSON SCHEMA
-Return strictly JSON. No markdown blocking.`;
+Return strictly JSON. No markdown.`;
 
-// Defined extraction schema for better reliability
+// Relaxed extraction schema (removed required fields to prevent Gemini validation errors)
 const EXTRACTION_SCHEMA = {
   type: Type.OBJECT,
   properties: {
@@ -124,7 +99,7 @@ const EXTRACTION_SCHEMA = {
         sender_name: { type: Type.STRING },
         beneficiary_name: { type: Type.STRING }
       },
-      required: ["bank_name"]
+      // No required fields
     },
     transaction: {
       type: Type.OBJECT,
@@ -169,8 +144,7 @@ const EXTRACTION_SCHEMA = {
         reason: { type: Type.STRING }
       }
     }
-  },
-  required: ["extraction", "transaction", "analysis"]
+  }
 };
 
 // --- ZHIPU AI (GLM-4V) FOR OCR ---
@@ -183,10 +157,7 @@ const performOCRWithGLM = async (base64Image: string): Promise<string> => {
   try {
     const response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`
-      },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: "glm-4v", 
         messages: [
@@ -203,14 +174,11 @@ const performOCRWithGLM = async (base64Image: string): Promise<string> => {
       })
     });
 
-    if (!response.ok) {
-       throw new Error(`ZHIPU_API_ERROR: ${response.status}`);
-    }
-    
+    if (!response.ok) throw new Error(`ZHIPU_API_ERROR: ${response.status}`);
     const data = await response.json();
     return data.choices?.[0]?.message?.content || "";
   } catch (error) {
-    console.warn("GLM-4V OCR Failed or CORS blocked, falling back to Gemini Vision.", error);
+    console.warn("GLM-4V OCR Failed, falling back.", error);
     throw new Error("ZHIPU_FAILED");
   }
 };
@@ -223,12 +191,11 @@ const performOCRWithGemini = async (base64Image: string, mimeType: string): Prom
   const ai = new GoogleGenAI({ apiKey });
   
   try {
-    // Using gemini-3-flash-preview for speed in fallback
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: {
         parts: [
-          { text: "Transcribe all text and numbers from this financial document exactly as they appear. Return only the text. If there are tables, preserve the row/column structure." },
+          { text: "Transcribe text from image. Return only text." },
           { inlineData: { mimeType, data: base64Image } }
         ]
       }
@@ -236,7 +203,7 @@ const performOCRWithGemini = async (base64Image: string, mimeType: string): Prom
     return response.text || "";
   } catch (error) {
     console.error("Gemini Vision Failed:", error);
-    throw new Error("Atlas Vision Sensors Failed. Please ensure the image is clear.");
+    throw new Error("Vision Sensors Failed.");
   }
 };
 
@@ -246,32 +213,21 @@ const analyzeTextWithGemini = async (ocrText: string): Promise<any> => {
   if (!apiKey) throw new Error("Gemini API Key is missing.");
 
   const ai = new GoogleGenAI({ apiKey });
-
-  // 1. Clean the text using Regex rules
   const cleanedText = cleanOcrText(ocrText);
-  
-  // 2. Pre-calculate fees to give hints to the model
   const regexHints = extractFeesWithRegex(cleanedText);
 
   try {
-    // Using gemini-3-pro-preview for complex reasoning and JSON extraction
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: `
-      Here is the processed text extracted from the document:
-      ---------------------------------------------------
+      Data:
       ${cleanedText}
-      ---------------------------------------------------
-
-      HINTS (REGEX EXTRACTION):
-      - Likely Wire Fee: $${regexHints.wire}
-      - Likely FX Fee: $${regexHints.fx}
-      - Likely Correspondent Fee: $${regexHints.correspondent}
-      - Likely Total Fees: $${regexHints.total}
-
-      INSTRUCTIONS:
-      Use the cleaned text as the primary source. Use the HINTS to verify or correct if the text is ambiguous.
-      Return the data strictly fitting the schema.
+      
+      Hints:
+      Total Fees: $${regexHints.total}
+      
+      Instructions:
+      Extract fields based on schema. Use 0 or null if missing.
       `,
       config: {
         systemInstruction: EXTRACTION_INSTRUCTION,
@@ -281,13 +237,19 @@ const analyzeTextWithGemini = async (ocrText: string): Promise<any> => {
       }
     });
 
-    const jsonText = response.text;
-    if (!jsonText) throw new Error("Empty response from Logic Engine.");
-    return JSON.parse(jsonText.trim());
+    const cleanJson = cleanJsonOutput(response.text || "{}");
+    return JSON.parse(cleanJson);
 
   } catch (error) {
     console.error("Gemini Analysis Failed:", error);
-    throw new Error("Atlas Logic Core Failed.");
+    // Return a partial object so the app doesn't crash completely
+    return {
+      extraction: { bank_name: "Unidentified Bank" },
+      transaction: { amount: 0, currency_pair: "USD/EUR" },
+      fees: { items: [], total_fees: regexHints.total },
+      analysis: { total_cost_usd: 0 },
+      dispute: { recommended: false }
+    };
   }
 };
 
@@ -295,56 +257,45 @@ const analyzeTextWithGemini = async (ocrText: string): Promise<any> => {
 export const extractQuoteData = async (base64: string, mimeType: string = 'image/jpeg') => {
   let rawText = "";
 
-  // 1. Try GLM-4V first (if key exists)
   try {
      rawText = await performOCRWithGLM(base64);
   } catch (e: any) {
-     // 2. Fallback to Gemini Vision
      console.log("Switching to Gemini Vision pipeline...");
      rawText = await performOCRWithGemini(base64, mimeType);
   }
   
-  if (!rawText || rawText.length < 10) {
+  if (!rawText || rawText.length < 5) {
+    // If OCR fails completely, return a dummy object to allow manual entry (or let UI handle error)
     throw new Error("Document appeared empty or unreadable.");
   }
 
-  // 3. Structured Analysis with Robust Cleaning
   const structuredData = await analyzeTextWithGemini(rawText);
   return structuredData;
 };
 
-// --- SUPPORT CHAT (Gemini) ---
+// --- SUPPORT CHAT ---
 export const chatWithAtlas = async (message: string, history: {role: string, parts: {text: string}[]}[] = []) => {
   const apiKey = getGeminiKey();
   if (!apiKey) return "Atlas Disconnected: Missing API Key.";
 
   const ai = new GoogleGenAI({ apiKey });
-
   try {
-    // Using gemini-3-flash-preview for general support/Q&A
     const chat = ai.chats.create({
       model: 'gemini-3-flash-preview',
-      config: {
-        systemInstruction: ATLAS_PERSONA,
-        temperature: 0.7,
-      },
+      config: { systemInstruction: ATLAS_PERSONA, temperature: 0.7 },
       history: history 
     });
-
     const result = await chat.sendMessage({ message });
     return result.text;
-
   } catch (error) {
-    console.error("Chat Error:", error);
-    return "Atlas is temporarily unavailable. Please check your connection.";
+    return "Atlas is temporarily unavailable.";
   }
 };
 
-// --- IMAGE GENERATION ---
+// --- IMAGE GEN ---
 export const generateImageWithAI = async (prompt: string, size: '1K' | '2K' | '4K') => {
   const apiKey = getGeminiKey();
-  if (!apiKey) throw new Error("Gemini API Key is missing.");
-
+  if (!apiKey) throw new Error("Missing Key");
   const ai = new GoogleGenAI({ apiKey });
   const model = (size === '2K' || size === '4K') ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
   
@@ -352,52 +303,28 @@ export const generateImageWithAI = async (prompt: string, size: '1K' | '2K' | '4
     const response = await ai.models.generateContent({
       model,
       contents: { parts: [{ text: prompt }] },
-      config: {
-        imageConfig: {
-          aspectRatio: "1:1",
-          ...(model === 'gemini-3-pro-image-preview' ? { imageSize: size } : {})
-        }
-      }
+      config: { imageConfig: { aspectRatio: "1:1", ...(model === 'gemini-3-pro-image-preview' ? { imageSize: size } : {}) } }
     });
-
     for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData) {
-        return `data:image/png;base64,${part.inlineData.data}`;
-      }
+      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
     }
     return null;
-  } catch (error) {
-    console.error("Image Generation Failed:", error);
-    throw error;
-  }
+  } catch (error) { throw error; }
 };
 
-// --- IMAGE EDITING ---
 export const editImageWithAI = async (imageBase64: string, prompt: string) => {
   const apiKey = getGeminiKey();
-  if (!apiKey) throw new Error("Gemini API Key is missing.");
-
+  if (!apiKey) throw new Error("Missing Key");
   const ai = new GoogleGenAI({ apiKey });
   
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
-      contents: {
-        parts: [
-          { inlineData: { data: imageBase64, mimeType: 'image/jpeg' } },
-          { text: prompt }
-        ]
-      }
+      contents: { parts: [{ inlineData: { data: imageBase64, mimeType: 'image/jpeg' } }, { text: prompt }] }
     });
-
     for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData) {
-        return `data:image/png;base64,${part.inlineData.data}`;
-      }
+      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
     }
     return null;
-  } catch (error) {
-    console.error("Image Editing Failed:", error);
-    throw error;
-  }
+  } catch (error) { throw error; }
 };

@@ -11,70 +11,35 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
   const [success, setSuccess] = useState(false);
   const [scriptLoaded, setScriptLoaded] = useState(false);
 
-  // Helper for Robust Env Vars
-  const getEnv = (key: string) => {
-    let value = '';
-    // 1. Vite / Modern
-    if (import.meta && (import.meta as any).env) {
-      value = (import.meta as any).env[`VITE_${key}`] || 
-              (import.meta as any).env[`NEXT_PUBLIC_${key}`] || 
-              (import.meta as any).env[key] || 
-              '';
-    }
-    if (value) return value;
-
-    // 2. Process / Legacy
-    if (typeof process !== 'undefined' && process.env) {
-      value = process.env[`VITE_${key}`] || 
-              process.env[`NEXT_PUBLIC_${key}`] || 
-              process.env[key] || 
-              '';
-    }
-    return value;
-  };
+  // Hardcoded Client ID as requested
+  const CLIENT_ID = "AcfpjwLgDGThXpyOnYWUoWdFG7SM_h485vJULqGENmPyeiwfD20Prjfx6xRrqYOSZlM4s-Rnh3OfjXhk";
+  const PLAN_ID = "P-1UB7789392647964ANF3SL4I";
 
   useEffect(() => {
-    // Check if script is already loaded
     if ((window as any).paypal) {
       setScriptLoaded(true);
       return;
     }
 
-    const paypalClientId = getEnv("PAYPAL_CLIENT_ID");
-    
-    if (!paypalClientId) {
-      console.warn("PayPal Client ID not found in environment variables.");
-      // Fallback only if strictly necessary for dev, but preferred to be empty to fail visibly if env missing
-    }
-
-    const clientIdToUse = paypalClientId || "AcfpjwLgDGThXpyOnYWUoWdFG7SM_h485vJULqGENmPyeiwfD20Prjfx6xRrqYOSZlM4s-Rnh3OfjXhk";
-
-    // Load PayPal SDK dynamically
     const script = document.createElement('script');
-    script.src = `https://www.paypal.com/sdk/js?client-id=${clientIdToUse}&vault=true&intent=subscription`;
+    // Direct hardcoded URL without env variables
+    script.src = `https://www.paypal.com/sdk/js?client-id=${CLIENT_ID}&vault=true&intent=subscription`;
     script.setAttribute('data-sdk-integration-source', 'button-factory');
     script.async = true;
     script.onload = () => setScriptLoaded(true);
-    script.onerror = () => console.error("PayPal SDK failed to load. Check CLIENT_ID.");
+    script.onerror = () => console.error("PayPal Script Error");
     document.body.appendChild(script);
-
-    return () => {
-      // Cleanup if needed
-    };
   }, []);
 
   useEffect(() => {
     const uid = auth.currentUser?.uid;
     if (!orgId || !uid || !scriptLoaded) return;
 
-    const renderPaypalButton = () => {
+    const renderButton = () => {
       try {
         const paypal = (window as any).paypal;
-        const containerId = 'paypal-button-container-P-1UB7789392647964ANF3SL4I';
-        const container = document.getElementById(containerId);
-
-        // Clean container to avoid duplicates
-        if (container) container.innerHTML = '';
+        const container = document.getElementById('paypal-button-container');
+        if (container) container.innerHTML = ''; // Clear prev
 
         if (paypal && container) {
             paypal.Buttons({
@@ -86,11 +51,12 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
               },
               createSubscription: function(data: any, actions: any) {
                 return actions.subscription.create({
-                  plan_id: 'P-1UB7789392647964ANF3SL4I'
+                  plan_id: PLAN_ID
                 });
               },
               onApprove: function(data: any, actions: any) {
                 setIsProcessing(true);
+                // Handle the subscription success
                 if (data.subscriptionID) {
                    processEnterpriseUpgrade(uid, orgId, data.subscriptionID).then((upgraded) => {
                      if (upgraded) {
@@ -99,20 +65,17 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
                      }
                      setIsProcessing(false);
                    });
-                } else {
-                   setIsProcessing(false);
-                   alert('Error: No subscription ID returned.');
                 }
               }
-            }).render('#' + containerId);
+            }).render('#paypal-button-container');
         }
       } catch (err) {
-        console.error("PayPal Initialization Error:", err);
+        console.error("PayPal Error:", err);
       }
     };
 
     if (!success) {
-      const timer = setTimeout(renderPaypalButton, 500);
+      const timer = setTimeout(renderButton, 500);
       return () => clearTimeout(timer);
     }
   }, [success, orgId, scriptLoaded]);
@@ -130,8 +93,6 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
         </div>
      );
   }
-
-  if (!orgId) return <div className="text-center p-10 flex items-center justify-center gap-2"><Loader2 className="animate-spin" /> Loading Billing Node...</div>;
 
   return (
     <div className="max-w-6xl mx-auto py-10 px-4 space-y-12 animate-in fade-in slide-in-from-bottom-6 duration-700">
@@ -179,10 +140,6 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
              </div>
           )}
 
-          <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none">
-            <CreditCard size={120} className="text-black" />
-          </div>
-
           <div className="space-y-2 relative z-10">
             <div className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-600">Enterprise Standard</div>
             <div className="flex items-baseline gap-2">
@@ -198,7 +155,8 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
             <div className="text-center text-[10px] font-black text-zinc-400 uppercase tracking-widest">
               Secure Checkout via PayPal
             </div>
-            <div id="paypal-button-container-P-1UB7789392647964ANF3SL4I" className="min-h-[150px]"></div>
+            {/* PayPal Button Container */}
+            <div id="paypal-button-container" className="min-h-[150px]"></div>
           </div>
         </div>
       </div>
