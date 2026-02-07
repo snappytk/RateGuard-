@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { ShieldCheck, Zap, CheckCircle, CreditCard, Sparkles, Loader2 } from 'lucide-react';
+import React, { useEffect, useState, useRef } from 'react';
+import { ShieldCheck, Zap, CheckCircle, CreditCard, Loader2 } from 'lucide-react';
 import { processEnterpriseUpgrade, auth } from '../services/firebase';
 
 interface PaymentPageProps {
@@ -10,47 +10,41 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [success, setSuccess] = useState(false);
   const [scriptLoaded, setScriptLoaded] = useState(false);
+  const paypalRef = useRef<HTMLDivElement>(null);
+  const buttonRendered = useRef(false);
 
-  // Use the env var or fallback to the provided client ID
-  const PAYPAL_CLIENT_ID = import.meta.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID || (process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID as string) || "AcfpjwLgDGThXpyOnYWUoWdFG7SM_h485vJULqGENmPyeiwfD20Prjfx6xRrqYOSZlM4s-Rnh3OfjXhk";
+  // Hardcoded as primary fallback to ensure it works immediately for you
+  const DEFAULT_CLIENT_ID = "AcfpjwLgDGThXpyOnYWUoWdFG7SM_h485vJULqGENmPyeiwfD20Prjfx6xRrqYOSZlM4s-Rnh3OfjXhk";
+  const PLAN_ID = "P-1UB7789392647964ANF3SL4I";
 
   useEffect(() => {
-    // Check if script already exists to avoid duplicates
-    if (document.getElementById('paypal-sdk')) {
+    // 1. Get Client ID (Env Var or Fallback)
+    const clientId = import.meta.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID || (process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID as string) || DEFAULT_CLIENT_ID;
+
+    // 2. Load Script Dynamically
+    if (!window.paypal) {
+      const script = document.createElement('script');
+      script.src = `https://www.paypal.com/sdk/js?client-id=${clientId}&vault=true&intent=subscription`;
+      script.async = true;
+      script.onload = () => setScriptLoaded(true);
+      script.onerror = (err) => console.error("PayPal SDK failed to load", err);
+      document.body.appendChild(script);
+    } else {
       setScriptLoaded(true);
-      return;
     }
-
-    const script = document.createElement('script');
-    script.id = 'paypal-sdk';
-    script.src = `https://www.paypal.com/sdk/js?client-id=${PAYPAL_CLIENT_ID}&vault=true&intent=subscription`;
-    script.setAttribute('data-sdk-integration-source', 'button-factory');
-    script.async = true;
-    script.onload = () => setScriptLoaded(true);
-    script.onerror = (err) => {
-      console.error("PayPal Script Load Error", err);
-    };
-    document.body.appendChild(script);
-
-    return () => {
-      // Optional cleanup
-    };
   }, []);
 
   useEffect(() => {
-    const uid = auth.currentUser?.uid;
-    if (!orgId || !uid || !scriptLoaded) return;
+    // 3. Render Button (Only once, when script is loaded and user is ready)
+    if (scriptLoaded && !buttonRendered.current && paypalRef.current && orgId) {
+      const uid = auth.currentUser?.uid;
+      if (!uid) return;
 
-    const renderPaypalButton = () => {
-      const paypal = (window as any).paypal;
-      const containerId = 'paypal-button-container-P-1UB7789392647964ANF3SL4I';
-      const planId = 'P-1UB7789392647964ANF3SL4I';
-      
-      const container = document.getElementById(containerId);
-
-      // Ensure container exists and is empty before rendering
-      if (paypal && container && container.innerHTML === '') {
-          paypal.Buttons({
+      if (window.paypal) {
+        buttonRendered.current = true; // Lock to prevent double render
+        
+        try {
+          window.paypal.Buttons({
             style: {
               shape: 'rect',
               color: 'gold',
@@ -59,57 +53,56 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
             },
             createSubscription: function(data: any, actions: any) {
               return actions.subscription.create({
-                plan_id: planId
+                plan_id: PLAN_ID
               });
             },
             onApprove: function(data: any, actions: any) {
               setIsProcessing(true);
-              if (data.subscriptionID) {
-                 processEnterpriseUpgrade(uid, orgId, data.subscriptionID).then((upgraded) => {
-                   if (upgraded) {
-                     setSuccess(true);
-                     window.location.reload(); 
-                   } else {
-                     alert("Upgrade recorded but sync failed. Please contact support.");
-                   }
-                   setIsProcessing(false);
-                 });
-              } else {
+              // Use the Subscription ID to process the upgrade
+              processEnterpriseUpgrade(uid, orgId, data.subscriptionID).then((upgraded) => {
+                 if (upgraded) {
+                   setSuccess(true);
+                   setTimeout(() => window.location.reload(), 2000);
+                 } else {
+                   alert("Payment successful but sync failed. Please contact support.");
+                 }
                  setIsProcessing(false);
-                 alert('Error: No subscription ID returned.');
-              }
+              });
             },
             onError: function (err: any) {
-              console.error("PayPal Button Error:", err);
-              // Do not auto-fix or hide error, let user see console or alert
-              alert("PayPal Error: " + err);
+              console.error("PayPal Error:", err);
+              setIsProcessing(false);
             }
-          }).render('#' + containerId);
+          }).render(paypalRef.current);
+        } catch (error) {
+          console.error("Failed to render PayPal buttons:", error);
+          buttonRendered.current = false; // Reset lock if render fails
+        }
       }
-    };
-
-    if (!success) {
-      // Small delay to ensure DOM is ready
-      const timer = setTimeout(renderPaypalButton, 500);
-      return () => clearTimeout(timer);
     }
-  }, [success, orgId, scriptLoaded]);
+  }, [scriptLoaded, orgId]);
 
   if (success) {
      return (
-        <div className="flex items-center justify-center min-h-[60vh] text-center">
+        <div className="flex items-center justify-center min-h-[60vh] text-center animate-in fade-in zoom-in duration-500">
            <div className="space-y-6">
-              <div className="w-24 h-24 bg-emerald-500/20 rounded-full flex items-center justify-center text-emerald-500 mx-auto">
+              <div className="w-24 h-24 bg-emerald-500/20 rounded-full flex items-center justify-center text-emerald-500 mx-auto border border-emerald-500/30 shadow-lg shadow-emerald-500/20">
                  <CheckCircle size={48} />
               </div>
-              <h2 className="text-3xl font-black text-white uppercase">License Activated</h2>
-              <p className="text-zinc-500">Your enterprise node is now fully operational.</p>
+              <div>
+                <h2 className="text-3xl font-black text-white uppercase tracking-tight">License Activated</h2>
+                <p className="text-zinc-500 mt-2">Enterprise protocols engaged. Reloading terminal...</p>
+              </div>
            </div>
         </div>
      );
   }
 
-  if (!orgId) return <div className="text-center p-10">Loading Billing Node...</div>;
+  if (!orgId) return (
+    <div className="flex items-center justify-center min-h-[50vh]">
+      <Loader2 className="animate-spin text-zinc-600" />
+    </div>
+  );
 
   return (
     <div className="max-w-6xl mx-auto py-10 px-4 space-y-12 animate-in fade-in slide-in-from-bottom-6 duration-700">
@@ -118,24 +111,24 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
           Activate Your <br /> <span className="text-blue-500">Defense Terminal</span>
         </h1>
         <p className="text-zinc-500 max-w-2xl mx-auto font-medium text-lg leading-relaxed">
-          Upgrade Organization: {orgId}
+          Secure node upgrade for Organization: <span className="text-white font-mono">{orgId}</span>
         </p>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-12 items-start">
         <div className="space-y-8 bg-zinc-900/40 border border-zinc-800 rounded-[2.5rem] p-10 shadow-2xl">
           <div className="space-y-2">
-            <h3 className="text-2xl font-black text-white uppercase tracking-tight">Standard Benefits</h3>
-            <p className="text-zinc-500 text-sm">Everything you need to audit high-volume freight lanes.</p>
+            <h3 className="text-2xl font-black text-white uppercase tracking-tight">Enterprise Capabilities</h3>
+            <p className="text-zinc-500 text-sm">Unlock the full power of the Atlas AI engine.</p>
           </div>
           <div className="grid gap-6">
             {[
-              { icon: <Zap className="text-blue-500" />, title: "Unlimited Atlas AI Audits", desc: "Process unlimited PDFs/JPGs without caps." },
-              { icon: <Sparkles className="text-purple-500" />, title: "Profit Guard™ Memory", desc: "AI-driven comparison against your own historical lane rates." },
-              { icon: <CheckCircle className="text-indigo-500" />, title: "Auto-Dispute Engine", desc: "One-click professional emails to carriers for surcharge drift." }
+              { icon: <Zap className="text-blue-500" />, title: "Unlimited AI Audits", desc: "Remove the 5-quote cap. Process high-volume batces." },
+              { icon: <ShieldCheck className="text-emerald-500" />, title: "Priority Processing", desc: "Skip the queue with dedicated GPU allocation." },
+              { icon: <CheckCircle className="text-indigo-500" />, title: "Dispute Automation", desc: "Generate legal-grade dispute letters instantly." }
             ].map((benefit, i) => (
               <div key={i} className="flex gap-5 group">
-                <div className="w-12 h-12 bg-zinc-950 rounded-2xl border border-zinc-800 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                <div className="w-12 h-12 bg-zinc-950 rounded-2xl border border-zinc-800 flex items-center justify-center shrink-0 group-hover:border-blue-500/30 transition-colors">
                   {benefit.icon}
                 </div>
                 <div>
@@ -148,8 +141,8 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
         </div>
 
         <div className="bg-white rounded-[2.5rem] p-10 text-zinc-950 space-y-8 shadow-2xl relative overflow-hidden">
-          {(isProcessing || !scriptLoaded) && (
-             <div className="absolute inset-0 bg-white/90 z-50 flex items-center justify-center flex-col gap-4">
+          {isProcessing && (
+             <div className="absolute inset-0 bg-white/95 z-50 flex items-center justify-center flex-col gap-4 backdrop-blur-sm">
                 <Loader2 className="animate-spin text-blue-600" size={40} />
                 <span className="font-black uppercase tracking-widest text-xs">Provisioning Enterprise Node...</span>
              </div>
@@ -160,13 +153,13 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
           </div>
 
           <div className="space-y-2 relative z-10">
-            <div className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-600">Enterprise Standard</div>
+            <div className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-600">Monthly License</div>
             <div className="flex items-baseline gap-2">
-              <span className="text-6xl font-black tracking-tighter">$231</span>
+              <span className="text-6xl font-black tracking-tighter">$199</span>
               <span className="text-zinc-500 text-xl font-black">USD</span>
             </div>
             <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">
-              Includes $31.00 Tax (15.5%)
+              + Applicable Taxes
             </p>
           </div>
 
@@ -174,8 +167,16 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
             <div className="text-center text-[10px] font-black text-zinc-400 uppercase tracking-widest">
               Secure Checkout via PayPal
             </div>
-            {/* The Container ID must match what is used in the render call */}
-            <div id="paypal-button-container-P-1UB7789392647964ANF3SL4I" className="min-h-[150px]"></div>
+            
+            {/* The PayPal Button Container */}
+            <div ref={paypalRef} className="min-h-[150px] w-full relative z-20"></div>
+            
+            {!scriptLoaded && (
+              <div className="flex items-center justify-center py-4 gap-2 text-zinc-400">
+                <Loader2 className="animate-spin" size={16} />
+                <span className="text-xs font-bold uppercase tracking-widest">Connecting to PayPal...</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
