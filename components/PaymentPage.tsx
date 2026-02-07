@@ -34,7 +34,7 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
 
   useEffect(() => {
     // 1. Load PayPal Script Directly
-    if (!window.paypal) {
+    if (!(window as any).paypal) {
       const script = document.createElement('script');
       script.src = `https://www.paypal.com/sdk/js?client-id=${CLIENT_ID}&vault=true&intent=subscription`;
       script.setAttribute('data-sdk-integration-source', 'button-factory');
@@ -48,7 +48,7 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
 
   useEffect(() => {
     // 2. Render Buttons
-    if (scriptLoaded && window.paypal && paypalRef.current && orgId) {
+    if (scriptLoaded && (window as any).paypal && paypalRef.current && orgId) {
        // Clear container to prevent duplicate buttons
        paypalRef.current.innerHTML = "";
 
@@ -56,7 +56,7 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
        if (!uid) return;
 
        try {
-         window.paypal.Buttons({
+         (window as any).paypal.Buttons({
             style: {
                 shape: 'rect',
                 color: 'gold',
