@@ -11,19 +11,9 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
   const [success, setSuccess] = useState(false);
   const [scriptLoaded, setScriptLoaded] = useState(false);
 
-  // Helper for Robust Env Vars
-  const getEnv = (key: string) => {
-    if (typeof process !== 'undefined' && process.env) {
-      return process.env[`VITE_${key}`] || 
-             process.env[`NEXT_PUBLIC_${key}`] || 
-             process.env[key] || 
-             '';
-    }
-    return '';
-  };
-
   useEffect(() => {
-    const paypalClientId = getEnv("PAYPAL_CLIENT_ID") || "AcfpjwLgDGThXpyOnYWUoWdFG7SM_h485vJULqGENmPyeiwfD20Prjfx6xRrqYOSZlM4s-Rnh3OfjXhk";
+    // Explicit use of import.meta.env for Vite static replacement
+    const paypalClientId = import.meta.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID || (process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID as string) || "AcfpjwLgDGThXpyOnYWUoWdFG7SM_h485vJULqGENmPyeiwfD20Prjfx6xRrqYOSZlM4s-Rnh3OfjXhk";
     
     // Check if script already exists
     if (document.getElementById('paypal-sdk')) {

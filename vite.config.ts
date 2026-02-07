@@ -3,18 +3,21 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
   // Load env file based on `mode` in the current working directory.
-  const env = loadEnv(mode, (process as any).cwd(), '');
+  // The third argument '' loads all env vars regardless of prefix on the server side (build time)
+  const env = loadEnv(mode, process.cwd(), '');
+  
   return {
     plugins: [react()],
+    // Critical: Tell Vite to expose variables starting with NEXT_PUBLIC_ to the client
+    envPrefix: ['VITE_', 'NEXT_PUBLIC_'], 
     build: {
-      target: 'esnext', // Optimization for top-level await support in libraries
+      target: 'esnext', 
       outDir: 'dist',
-      sourcemap: false, // Disable sourcemaps in production for security
+      sourcemap: false, 
       minify: 'esbuild'
     },
     define: {
-      // Robust polyfill for libraries expecting process.env
-      // We prioritize VITE_ prefixed vars for client-side safety
+      // Polyfill process.env for libraries that might need it, but use import.meta.env in app code
       'process.env': JSON.stringify(env)
     }
   };

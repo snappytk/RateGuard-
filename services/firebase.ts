@@ -1,4 +1,3 @@
-
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { 
   getAuth, 
@@ -33,25 +32,14 @@ import {
 } from "firebase/firestore";
 import { UserProfile, QuoteData, LiveRate, Audit, Organization } from "../types";
 
-// Helper for Robust Env Vars
-const getEnv = (key: string) => {
-  if (typeof process !== 'undefined' && process.env) {
-    return process.env[`VITE_${key}`] || 
-           process.env[`NEXT_PUBLIC_${key}`] || 
-           process.env[key] || 
-           '';
-  }
-  return '';
-};
-
 // --- CONFIGURATION ---
 const firebaseConfig = {
-  apiKey: getEnv("FIREBASE_API_KEY") || "AIzaSyAP_fpKfZ4gANhlNzUBhJbFKHWRauEF7hc",
-  authDomain: getEnv("FIREBASE_AUTH_DOMAIN") || "rateguard-3d8b9.firebaseapp.com",
-  projectId: getEnv("FIREBASE_PROJECT_ID") || "rateguard-3d8b9",
-  storageBucket: getEnv("FIREBASE_STORAGE_BUCKET") || "rateguard-3d8b9.firebasestorage.app",
-  messagingSenderId: getEnv("FIREBASE_MESSAGING_SENDER_ID") || "811913626284",
-  appId: getEnv("FIREBASE_APP_ID") || "1:811913626284:web:db6d49f5d8ce3ad12c1509"
+  apiKey: import.meta.env.NEXT_PUBLIC_FIREBASE_API_KEY || (process.env.NEXT_PUBLIC_FIREBASE_API_KEY as string),
+  authDomain: import.meta.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || (process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN as string),
+  projectId: import.meta.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || (process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID as string),
+  storageBucket: import.meta.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || (process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET as string),
+  messagingSenderId: import.meta.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || (process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID as string),
+  appId: import.meta.env.NEXT_PUBLIC_FIREBASE_APP_ID || (process.env.NEXT_PUBLIC_FIREBASE_APP_ID as string)
 };
 
 // --- INITIALIZATION ---
