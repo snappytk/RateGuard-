@@ -1,11 +1,8 @@
-
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 
 // --- CONFIGURATION ---
 
-// Helper to check all possible prefix variations for Vercel/Vite compatibility
 const getEnv = (key: string) => {
-  // Check process.env (polyfilled by vite.config.ts)
   if (typeof process !== 'undefined' && process.env) {
     return process.env[`VITE_${key}`] || 
            process.env[`NEXT_PUBLIC_${key}`] || 
@@ -16,14 +13,13 @@ const getEnv = (key: string) => {
 };
 
 const getZhipuKey = () => getEnv('ZHIPUAI_API_KEY');
-const getGeminiKey = () => getEnv('GEMINI_API_KEY');
 
 // --- SYSTEM INSTRUCTIONS ---
 
 const ATLAS_PERSONA = `You are Atlas, the central intelligence node for RateGuard. 
 You assist Finance teams in analyzing bank wires, detecting hidden spreads, and negotiating better FX rates.
 You are professional, concise, and focused on saving the user money.
-Never mention internal model names (like Gemini or GLM). Always refer to yourself as "Atlas".`;
+Never mention internal model names. Always refer to yourself as "Atlas".`;
 
 const EXTRACTION_INSTRUCTION = `You are RateGuard's Logic Engine. Your goal is to convert raw OCR text from a bank document into structured JSON.
 
@@ -36,37 +32,68 @@ const EXTRACTION_INSTRUCTION = `You are RateGuard's Logic Engine. Your goal is t
    - Calculate 'markup_cost' = (Bank Rate vs Mid-Market Rate diff) * Amount.
 
 ## OUTPUT JSON SCHEMA
-Return strictly JSON. No markdown blocking.
-{
-  "extraction": {
-    "bank_name": "string",
-    "transaction_date": "YYYY-MM-DD",
-    "sender_name": "string",
-    "beneficiary_name": "string"
+Return strictly JSON. No markdown blocking.`;
+
+// Defined extraction schema for better reliability
+const EXTRACTION_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    extraction: {
+      type: Type.OBJECT,
+      properties: {
+        bank_name: { type: Type.STRING },
+        transaction_date: { type: Type.STRING },
+        sender_name: { type: Type.STRING },
+        beneficiary_name: { type: Type.STRING }
+      },
+      required: ["bank_name"]
+    },
+    transaction: {
+      type: Type.OBJECT,
+      properties: {
+        original_amount: { type: Type.NUMBER },
+        original_currency: { type: Type.STRING },
+        converted_amount: { type: Type.NUMBER },
+        converted_currency: { type: Type.STRING },
+        exchange_rate_bank: { type: Type.NUMBER },
+        currency_pair: { type: Type.STRING },
+        value_date: { type: Type.STRING }
+      }
+    },
+    fees: {
+      type: Type.OBJECT,
+      properties: {
+        items: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              amount: { type: Type.NUMBER }
+            }
+          }
+        },
+        total_fees: { type: Type.NUMBER }
+      }
+    },
+    analysis: {
+      type: Type.OBJECT,
+      properties: {
+        mid_market_rate: { type: Type.NUMBER },
+        cost_of_spread_usd: { type: Type.NUMBER },
+        total_cost_usd: { type: Type.NUMBER }
+      }
+    },
+    dispute: {
+      type: Type.OBJECT,
+      properties: {
+        recommended: { type: Type.BOOLEAN },
+        reason: { type: Type.STRING }
+      }
+    }
   },
-  "transaction": {
-    "original_amount": number,
-    "original_currency": "XXX",
-    "converted_amount": number,
-    "converted_currency": "YYY",
-    "exchange_rate_bank": number,
-    "currency_pair": "XXX/YYY",
-    "value_date": "YYYY-MM-DD"
-  },
-  "fees": {
-    "items": [{ "name": "string", "amount": number }],
-    "total_fees": number
-  },
-  "analysis": {
-    "mid_market_rate": number,
-    "cost_of_spread_usd": number,
-    "total_cost_usd": number
-  },
-  "dispute": {
-    "recommended": boolean,
-    "reason": "string"
-  }
-}`;
+  required: ["extraction", "transaction", "analysis"]
+};
 
 // --- ZHIPU AI (GLM-4V) FOR OCR ---
 const performOCRWithGLM = async (base64Image: string): Promise<string> => {
@@ -109,23 +136,19 @@ const performOCRWithGLM = async (base64Image: string): Promise<string> => {
 
 // --- GEMINI VISION FALLBACK ---
 const performOCRWithGemini = async (base64Image: string, mimeType: string): Promise<string> => {
-  const apiKey = getGeminiKey();
-  if (!apiKey) throw new Error("Gemini API Key is missing.");
-
-  const ai = new GoogleGenAI({ apiKey });
+  // Using direct process.env.API_KEY as per guidelines
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   try {
+    // Using gemini-3-pro-preview for complex document transcription (Complex Text Task)
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-preview',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: "Transcribe all text and numbers from this financial document exactly as they appear. Return only the text." },
-            { inlineData: { mimeType, data: base64Image } }
-          ]
-        }
-      ]
+      model: 'gemini-3-pro-preview',
+      contents: {
+        parts: [
+          { text: "Transcribe all text and numbers from this financial document exactly as they appear. Return only the text." },
+          { inlineData: { mimeType, data: base64Image } }
+        ]
+      }
     });
     return response.text || "";
   } catch (error) {
@@ -136,32 +159,25 @@ const performOCRWithGemini = async (base64Image: string, mimeType: string): Prom
 
 // --- GEMINI FOR ANALYSIS ---
 const analyzeTextWithGemini = async (ocrText: string): Promise<any> => {
-  const apiKey = getGeminiKey();
-  if (!apiKey) throw new Error("Gemini API Key is missing.");
-
-  const ai = new GoogleGenAI({ apiKey });
+  // Using direct process.env.API_KEY as per guidelines
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
+    // Using gemini-3-pro-preview for complex reasoning tasks
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-preview',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: EXTRACTION_INSTRUCTION },
-            { text: `Here is the raw text extracted from the document:\n\n${ocrText}` }
-          ]
-        }
-      ],
+      model: 'gemini-3-pro-preview',
+      contents: `Here is the raw text extracted from the document:\n\n${ocrText}`,
       config: {
+        systemInstruction: EXTRACTION_INSTRUCTION,
         responseMimeType: "application/json",
+        responseSchema: EXTRACTION_SCHEMA,
         temperature: 0.1,
       }
     });
 
     const jsonText = response.text;
     if (!jsonText) throw new Error("Empty response from Logic Engine.");
-    return JSON.parse(jsonText);
+    return JSON.parse(jsonText.trim());
 
   } catch (error) {
     console.error("Gemini Analysis Failed:", error);
@@ -173,33 +189,28 @@ const analyzeTextWithGemini = async (ocrText: string): Promise<any> => {
 export const extractQuoteData = async (base64: string, mimeType: string = 'image/jpeg') => {
   let rawText = "";
 
-  // 1. Try GLM-4V first
   try {
      rawText = await performOCRWithGLM(base64);
   } catch (e: any) {
-     // 2. Fallback to Gemini 2.5 Flash if Zhipu is missing or fails (CORS/Error)
      console.log("Switching to Gemini Vision pipeline...");
      rawText = await performOCRWithGemini(base64, mimeType);
   }
   
   if (!rawText) throw new Error("Document was unreadable by all nodes.");
 
-  // 3. Send extracted text to Gemini for Logic/Math/Structuring
   const structuredData = await analyzeTextWithGemini(rawText);
-
   return structuredData;
 };
 
 // --- SUPPORT CHAT (Gemini) ---
 export const chatWithAtlas = async (message: string, history: {role: string, parts: {text: string}[]}[] = []) => {
-  const apiKey = getGeminiKey();
-  if (!apiKey) return "Atlas Disconnected: Missing API Key.";
-
-  const ai = new GoogleGenAI({ apiKey });
+  // Using direct process.env.API_KEY as per guidelines
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
+    // Using gemini-3-flash-preview for general support/Q&A
     const chat = ai.chats.create({
-      model: 'gemini-2.5-flash-preview',
+      model: 'gemini-3-flash-preview',
       config: {
         systemInstruction: ATLAS_PERSONA,
         temperature: 0.7,
@@ -218,9 +229,57 @@ export const chatWithAtlas = async (message: string, history: {role: string, par
 
 // --- IMAGE GENERATION ---
 export const generateImageWithAI = async (prompt: string, size: '1K' | '2K' | '4K') => {
-  return null; 
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // Using gemini-3-pro-image-preview for high resolution requests
+  const model = (size === '2K' || size === '4K') ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
+  
+  try {
+    const response = await ai.models.generateContent({
+      model,
+      contents: { parts: [{ text: prompt }] },
+      config: {
+        imageConfig: {
+          aspectRatio: "1:1",
+          ...(model === 'gemini-3-pro-image-preview' ? { imageSize: size } : {})
+        }
+      }
+    });
+
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        return `data:image/png;base64,${part.inlineData.data}`;
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error("Image Generation Failed:", error);
+    throw error;
+  }
 };
 
+// --- IMAGE EDITING ---
 export const editImageWithAI = async (imageBase64: string, prompt: string) => {
-   return null; 
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: {
+        parts: [
+          { inlineData: { data: imageBase64, mimeType: 'image/jpeg' } },
+          { text: prompt }
+        ]
+      }
+    });
+
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        return `data:image/png;base64,${part.inlineData.data}`;
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error("Image Editing Failed:", error);
+    throw error;
+  }
 };

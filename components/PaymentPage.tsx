@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { ShieldCheck, Zap, CheckCircle, CreditCard, Sparkles, Loader2 } from 'lucide-react';
 import { processEnterpriseUpgrade, auth } from '../services/firebase';
@@ -10,11 +9,44 @@ interface PaymentPageProps {
 const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [scriptLoaded, setScriptLoaded] = useState(false);
+
+  // Helper for Robust Env Vars
+  const getEnv = (key: string) => {
+    if (typeof process !== 'undefined' && process.env) {
+      return process.env[`VITE_${key}`] || 
+             process.env[`NEXT_PUBLIC_${key}`] || 
+             process.env[key] || 
+             '';
+    }
+    return '';
+  };
+
+  useEffect(() => {
+    const paypalClientId = getEnv("PAYPAL_CLIENT_ID") || "AcfpjwLgDGThXpyOnYWUoWdFG7SM_h485vJULqGENmPyeiwfD20Prjfx6xRrqYOSZlM4s-Rnh3OfjXhk";
+    
+    // Check if script already exists
+    if (document.getElementById('paypal-sdk')) {
+      setScriptLoaded(true);
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.id = 'paypal-sdk';
+    script.src = `https://www.paypal.com/sdk/js?client-id=${paypalClientId}&vault=true&intent=subscription`;
+    script.setAttribute('data-sdk-integration-source', 'button-factory');
+    script.async = true;
+    script.onload = () => setScriptLoaded(true);
+    document.body.appendChild(script);
+
+    return () => {
+      // Optional: Cleanup if navigating away before load
+    };
+  }, []);
 
   useEffect(() => {
     const uid = auth.currentUser?.uid;
-    // CRITICAL: Ensure we have Org ID before mounting paypal
-    if (!orgId || !uid) return;
+    if (!orgId || !uid || !scriptLoaded) return;
 
     const renderPaypalButton = () => {
       try {
@@ -40,7 +72,6 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
               onApprove: function(data: any, actions: any) {
                 setIsProcessing(true);
                 if (data.subscriptionID) {
-                   // Upgrade the ORG, not just the user
                    processEnterpriseUpgrade(uid, orgId, data.subscriptionID).then((upgraded) => {
                      if (upgraded) {
                        setSuccess(true);
@@ -64,7 +95,7 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
       const timer = setTimeout(renderPaypalButton, 500);
       return () => clearTimeout(timer);
     }
-  }, [success, orgId]);
+  }, [success, orgId, scriptLoaded]);
 
   if (success) {
      return (
@@ -119,7 +150,7 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
         </div>
 
         <div className="bg-white rounded-[2.5rem] p-10 text-zinc-950 space-y-8 shadow-2xl relative overflow-hidden">
-          {isProcessing && (
+          {(isProcessing || !scriptLoaded) && (
              <div className="absolute inset-0 bg-white/90 z-50 flex items-center justify-center flex-col gap-4">
                 <Loader2 className="animate-spin text-blue-600" size={40} />
                 <span className="font-black uppercase tracking-widest text-xs">Provisioning Enterprise Node...</span>

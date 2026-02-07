@@ -11,10 +11,14 @@ interface State {
 }
 
 class ErrorBoundary extends React.Component<Props, State> {
-  public state: State = {
-    hasError: false,
-    error: null
-  };
+  // Added constructor to fix "Property 'props' does not exist" error
+  constructor(props: Props) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null
+    };
+  }
 
   static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
@@ -61,7 +65,9 @@ class ErrorBoundary extends React.Component<Props, State> {
       );
     }
 
-    return this.props.children;
+    // Explicitly destructure children to avoid property access issues
+    const { children } = this.props;
+    return children;
   }
 }
 
