@@ -1,10 +1,10 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 
 // --- CONFIGURATION ---
 
-// Direct access ensures Vite replaces these with strings at build time
+// Direct access for Vite/Vercel compatibility
 const getGeminiKey = () => import.meta.env.VITE_GEMINI_API_KEY || (process.env.VITE_GEMINI_API_KEY as string);
-const getZhipuKey = () => import.meta.env.VITE_ZHIPUAI_API_KEY || (process.env.VITE_ZHIPUAI_API_KEY as string);
 
 // --- SYSTEM INSTRUCTIONS ---
 
@@ -87,49 +87,7 @@ const EXTRACTION_SCHEMA = {
   required: ["extraction", "transaction", "analysis"]
 };
 
-// --- ZHIPU AI (GLM-4V) FOR OCR ---
-const performOCRWithGLM = async (base64Image: string): Promise<string> => {
-  const apiKey = getZhipuKey();
-  if (!apiKey) throw new Error("ZHIPU_MISSING");
-
-  const url = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
-
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: "glm-4v", 
-        messages: [
-          {
-            role: "user",
-            content: [
-              { 
-                type: "text", 
-                text: "You are a specialized OCR engine. ANALYZE this financial document image (Bank Statement, Invoice, Receipt, or Handwritten Note). \n\nINSTRUCTIONS:\n1. Transcribe ALL text, numbers, dates, and tables exactly as they appear.\n2. Do not summarize. Do not explain.\n3. Preserve the structure of tables row-by-row.\n4. If the document is handwritten, transcribe it to the best of your ability.\n5. Output ONLY the raw transcription." 
-              },
-              { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Image}` } }
-            ]
-          }
-        ],
-        temperature: 0.1,
-        max_tokens: 4000
-      })
-    });
-
-    if (!response.ok) throw new Error(`Status ${response.status}`);
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content || "";
-  } catch (error) {
-    console.warn("GLM-4V OCR Failed or CORS blocked, falling back to Gemini Vision.", error);
-    throw new Error("ZHIPU_FAILED");
-  }
-};
-
-// --- GEMINI VISION FALLBACK ---
+// --- GEMINI VISION (OCR) ---
 const performOCRWithGemini = async (base64Image: string, mimeType: string): Promise<string> => {
   const apiKey = getGeminiKey();
   if (!apiKey) throw new Error("Gemini API Key is missing.");
@@ -137,12 +95,12 @@ const performOCRWithGemini = async (base64Image: string, mimeType: string): Prom
   const ai = new GoogleGenAI({ apiKey });
   
   try {
-    // Using gemini-3-pro-preview for complex document transcription
+    // Using gemini-3-pro-preview for high-fidelity OCR
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: {
         parts: [
-          { text: "Transcribe all text and numbers from this financial document exactly as they appear. Return only the text." },
+          { text: "Transcribe all text and numbers from this financial document exactly as they appear. Return only the text. If there are tables, preserve the row/column structure." },
           { inlineData: { mimeType, data: base64Image } }
         ]
       }
@@ -150,11 +108,11 @@ const performOCRWithGemini = async (base64Image: string, mimeType: string): Prom
     return response.text || "";
   } catch (error) {
     console.error("Gemini Vision Failed:", error);
-    throw new Error("Atlas Vision Sensors Failed.");
+    throw new Error("Atlas Vision Sensors Failed. Please ensure the image is clear.");
   }
 };
 
-// --- GEMINI FOR ANALYSIS ---
+// --- GEMINI ANALYSIS (LOGIC) ---
 const analyzeTextWithGemini = async (ocrText: string): Promise<any> => {
   const apiKey = getGeminiKey();
   if (!apiKey) throw new Error("Gemini API Key is missing.");
@@ -185,19 +143,22 @@ const analyzeTextWithGemini = async (ocrText: string): Promise<any> => {
 
 // --- MAIN PIPELINE ---
 export const extractQuoteData = async (base64: string, mimeType: string = 'image/jpeg') => {
-  let rawText = "";
-
   try {
-     rawText = await performOCRWithGLM(base64);
-  } catch (e: any) {
-     console.log("Switching to Gemini Vision pipeline...");
-     rawText = await performOCRWithGemini(base64, mimeType);
-  }
-  
-  if (!rawText) throw new Error("Document was unreadable by all nodes.");
+     // 1. Vision Extraction
+     const rawText = await performOCRWithGemini(base64, mimeType);
+     
+     if (!rawText || rawText.length < 10) {
+       throw new Error("Document appeared empty or unreadable.");
+     }
 
-  const structuredData = await analyzeTextWithGemini(rawText);
-  return structuredData;
+     // 2. Structured Analysis
+     const structuredData = await analyzeTextWithGemini(rawText);
+     return structuredData;
+
+  } catch (e: any) {
+     console.error("Extraction Pipeline Error:", e);
+     throw e;
+  }
 };
 
 // --- SUPPORT CHAT (Gemini) ---
