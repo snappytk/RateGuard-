@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { FileText, Loader2, AlertTriangle, MessageSquare, X, Send, Cpu, Search, Lock, ScanLine } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { extractQuoteData } from '../services/gemini';
-import { saveQuoteToFirestore, logAnalyticsEvent } from '../services/firebase';
+import { logAnalyticsEvent } from '../services/firebase';
 import { analyzeQuoteRealtime } from '../services/marketData';
 import { QuoteData, Comment, UserProfile } from '../types';
 
@@ -58,7 +58,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
       try {
         const base64 = (e.target?.result as string).split(',')[1];
         
-        // Step 1: GLM-4V OCR -> Step 2: Gemini Analysis
+        // Step 1: Zapier Webhook (or fallback to Gemini Local)
         const extracted = await extractQuoteData(base64, file.type);
         
         setStatusText("RateGuard: Querying Massive FX Market Feed...");
@@ -72,72 +72,48 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
           extracted.transaction?.value_date
         );
 
-        // Map AI response + Market Analysis to QuoteData
-        const mappedData: Partial<QuoteData> = {
+        const notes: Comment[] = [];
+          
+        // Add System Note if Market Closed or Stale
+        if (marketAnalysis.note) {
+          notes.push({
+            id: Date.now().toString(),
+            user: 'System',
+            text: marketAnalysis.note,
+            timestamp: Date.now()
+          });
+        }
+
+        // --- DIRECT FRONTEND OUTPUT (NO DB SAVE) ---
+        // As requested, we construct the object for display only.
+        const newQuote: QuoteData = {
+            id: `temp_${Date.now()}`,
+            userId: currentUid,
+            orgId: currentOrgId,
             bank: extracted.extraction?.bank_name || 'Unknown Bank',
             pair: extracted.transaction?.currency_pair || 'USD/EUR',
             amount: extracted.transaction?.original_amount || 0,
             exchangeRate: extracted.transaction?.exchange_rate_bank || 1.0,
+            midMarketRate: marketAnalysis.midMarketRate || 0,
+            markupCost: marketAnalysis.markupCost || 0,
+            totalCost: (extracted.analysis?.total_cost_usd || 0) + (marketAnalysis.markupCost || 0),
             fees: extracted.fees?.items?.map((f: any) => ({ name: f.name || f.type, amount: f.amount })) || [],
             valueDate: extracted.transaction?.value_date || new Date().toISOString().split('T')[0],
-            
-            // Overwrite estimated data with Real Market Data
-            markupCost: marketAnalysis.markupCost || 0,
-            midMarketRate: marketAnalysis.midMarketRate || 0,
-            totalCost: (extracted.analysis?.total_cost_usd || 0) + (marketAnalysis.markupCost || 0),
-            
-            disputeDrafted: extracted.dispute?.recommended || false
+            status: (marketAnalysis.markupCost || 0) > 200 ? 'flagged' : 'analyzed',
+            workflowStatus: 'uploaded',
+            reliabilityScore: 95,
+            disputeDrafted: extracted.dispute?.recommended || false,
+            createdAt: Date.now(),
+            notes: notes,
+            geminiRaw: extracted
         };
 
-        const result = await saveQuoteToFirestore(
-          currentUid,
-          currentOrgId,
-          mappedData, 
-          base64, 
-          extracted
-        );
-
-        if (result.success) {
-          const notes: Comment[] = [];
-          
-          // Add System Note if Market Closed or Stale
-          if (marketAnalysis.note) {
-            notes.push({
-              id: Date.now().toString(),
-              user: 'System',
-              text: marketAnalysis.note,
-              timestamp: Date.now()
-            });
-          }
-
-          const newQuote: QuoteData = {
-             id: result.id,
-             userId: currentUid,
-             orgId: currentOrgId,
-             ...mappedData,
-             // Fallbacks
-             bank: mappedData.bank || 'Unknown Bank',
-             pair: mappedData.pair || 'USD/EUR',
-             amount: mappedData.amount || 0,
-             exchangeRate: mappedData.exchangeRate || 1.0,
-             markupCost: mappedData.markupCost || 0,
-             fees: mappedData.fees || [],
-             valueDate: mappedData.valueDate || new Date().toISOString().split('T')[0],
-             status: (mappedData.markupCost || 0) > 200 ? 'flagged' : 'analyzed',
-             workflowStatus: 'uploaded',
-             reliabilityScore: 95,
-             createdAt: Date.now(),
-             notes: notes,
-             geminiRaw: extracted
-          };
-
-          onAddQuote(newQuote);
-          
-          if (onProfileUpdate && !isEnterprise) {
-            onProfileUpdate({ credits: Math.max(0, (userProfile.credits || 0) - 1) });
-          }
-        } else {
-          throw new Error(result.error || "Database Transaction failed");
+        // Update UI State Directly
+        onAddQuote(newQuote);
+        
+        // Decrement local credits (Simulation)
+        if (onProfileUpdate && !isEnterprise) {
+          onProfileUpdate({ credits: Math.max(0, (userProfile.credits || 0) - 1) });
         }
 
       } catch (error: any) { 

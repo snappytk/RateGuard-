@@ -256,16 +256,17 @@ const extractQuoteDataViaLocalAI = async (base64: string, mimeType: string = 'im
 
 // --- MAIN PIPELINE (WEBHOOK FIRST) ---
 export const extractQuoteData = async (base64: string, mimeType: string = 'image/jpeg') => {
-  const WEBHOOK_URL = "https://eoqquswfp7c5ke3.m.pipedream.net";
+  // Update to Zapier Hook as requested
+  const WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/26207300/ue6g9ot/";
   
   // 1. Try Webhook Integration
   try {
-    console.log("Atlas: Uploading to Integration Node (Pipedream)...");
+    console.log("Atlas: Uploading to Integration Node (Zapier)...");
     
     // Using a simpler JSON payload for webhook compatibility
     const response = await fetch(WEBHOOK_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' }, // Zapier typically accepts plain JSON
       body: JSON.stringify({
         file: base64,
         mimeType: mimeType,
