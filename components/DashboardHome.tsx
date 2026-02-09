@@ -1,8 +1,9 @@
-
 import React, { useState, useEffect } from 'react';
-import { TrendingUp, ShieldCheck, Zap, ChevronRight, AlertCircle, CheckCircle, Loader2, ArrowUpRight, ArrowDownRight, Activity, Globe } from 'lucide-react';
+import { TrendingUp, ShieldCheck, Zap, ChevronRight, AlertCircle, CheckCircle, Loader2, ArrowUpRight, ArrowDownRight, Activity, Globe, RefreshCcw } from 'lucide-react';
 import { QuoteData, AppView, LiveRate } from '../types';
 import { fetchMarketRates } from '../services/marketData';
+import { listenToRates } from '../services/firebase';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface DashboardHomeProps {
   quotes: QuoteData[];
@@ -15,6 +16,10 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onU
   const [marketRates, setMarketRates] = useState<LiveRate[]>([]);
   const [source, setSource] = useState<'live' | 'simulated'>('simulated');
   
+  // Real-time Update States
+  const [pendingRates, setPendingRates] = useState<LiveRate[] | null>(null);
+  const [showUpdateNotification, setShowUpdateNotification] = useState(false);
+
   const flaggedCount = quotes?.filter(q => q.status === 'flagged').length || 0;
   const pendingReview = quotes?.filter(q => q.workflowStatus === 'reviewed').length || 0;
 
@@ -22,15 +27,39 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onU
   const totalRecovered = quotes?.reduce((acc, q) => acc + (q.markupCost || 0), 0) || 0;
 
   useEffect(() => {
-    const fetchRates = async () => {
+    // Initial Fetch
+    const initLoad = async () => {
       const data = await fetchMarketRates();
       setMarketRates(data.rates);
       setSource(data.source);
     };
-    fetchRates();
-    const interval = setInterval(fetchRates, 3000);
-    return () => clearInterval(interval);
+    initLoad();
+
+    // Listen for Firestore Updates
+    const unsubscribe = listenToRates((newRates) => {
+      if (newRates.length > 0) {
+        setSource('live'); // If we get data here, we are live
+        setPendingRates(newRates);
+        
+        // Only show notification if we already have rates loaded to compare timestamps
+        // or simply show it whenever new data arrives from the listener (simulating "Push")
+        setShowUpdateNotification(true);
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
+
+  const handleRefreshRates = () => {
+    if (pendingRates) {
+      setMarketRates(pendingRates);
+      setShowUpdateNotification(false);
+    } else {
+      // Fallback if pending is null but user clicked refresh
+      fetchMarketRates().then(data => setMarketRates(data.rates));
+      setShowUpdateNotification(false);
+    }
+  };
 
   const handleBatchApprove = () => {
     if (!onUpdateQuote || !quotes) return;
@@ -46,7 +75,29 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onU
   };
   
   return (
-    <div className="space-y-10 animate-in fade-in duration-500">
+    <div className="space-y-10 animate-in fade-in duration-500 relative">
+      {/* Update Notification */}
+      <AnimatePresence>
+        {showUpdateNotification && (
+          <motion.div 
+            initial={{ y: -50, opacity: 0 }} 
+            animate={{ y: 0, opacity: 1 }} 
+            exit={{ y: -50, opacity: 0 }}
+            className="absolute top-0 left-0 right-0 z-50 flex justify-center -mt-4 pointer-events-none"
+          >
+             <div className="bg-blue-600 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-4 pointer-events-auto cursor-pointer hover:scale-105 transition-transform" onClick={handleRefreshRates}>
+                <div className="flex items-center gap-2 text-sm font-bold">
+                   <Activity size={18} className="animate-pulse" />
+                   Exchange rates have been updated.
+                </div>
+                <button className="px-3 py-1 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-black uppercase tracking-widest flex items-center gap-2">
+                   <RefreshCcw size={12} /> Refresh
+                </button>
+             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
           <h2 className="text-4xl font-black text-white tracking-tighter mb-2">Treasury Digest</h2>
