@@ -24,37 +24,16 @@ const getGeminiKey = () => getEnv('GEMINI_API_KEY');
 
 const ATLAS_PERSONA = `You are the RateGuard Data Auditor. Your task is to extract bank confirmation data.`;
 
-// --- SIMULATION PIPELINE ---
+// --- SIMULATION FALLBACK (Used if API Key missing or Error) ---
+const simulateExtraction = async () => {
+  console.log("Atlas Simulation: Processing document (Fallback)...");
+  await new Promise(resolve => setTimeout(resolve, 1500));
 
-export const extractQuoteData = async (base64: string, mimeType: string = 'image/jpeg') => {
-  console.log("Atlas Simulation: Processing document...");
-  
-  // Simulate network/processing delay
-  await new Promise(resolve => setTimeout(resolve, 2000));
-
-  // Generate randomized but realistic data
-  const banks = ["JPMorgan Chase", "Bank of America", "Wells Fargo", "Citibank", "HSBC", "Deutsche Bank"];
+  const banks = ["JPMorgan Chase", "Bank of America", "Wells Fargo", "Citibank"];
   const randomBank = banks[Math.floor(Math.random() * banks.length)];
-  
-  const pairs = ["USD/EUR", "USD/GBP", "USD/JPY", "USD/CAD"];
-  const randomPair = pairs[Math.floor(Math.random() * pairs.length)];
-  
-  const amount = Math.floor(Math.random() * 400000) + 50000; // 50k - 450k
-  
-  // Base rates for sim
-  const baseRates: Record<string, number> = { "USD/EUR": 0.92, "USD/GBP": 0.79, "USD/JPY": 151.50, "USD/CAD": 1.36 };
-  const baseRate = baseRates[randomPair] || 1.0;
-  
-  // Simulate a bad bank rate (2-3% markup)
-  const markup = 1.0 + (0.02 + Math.random() * 0.015);
-  const bankRate = randomPair.includes('JPY') ? baseRate * (1/markup) : baseRate * (1/markup); // Simplify for direction
-  
-  // For the purpose of the UI showing "Markup", we usually compare Bank Rate vs Mid Market.
-  // If I sell USD to buy EUR, Bank gives me LESS EUR per USD.
-  // Mid Market: 0.92 EUR/USD. Bank gives 0.90 EUR/USD.
-  const exchangeRateBank = parseFloat((baseRate * 0.975).toFixed(4)); 
-
-  const estimatedSpreadCost = amount * 0.025; // Approx 2.5%
+  const amount = Math.floor(Math.random() * 400000) + 50000;
+  const baseRate = 1.08;
+  const bankRate = 1.05; // ~2.7% markup
 
   return {
     extraction: {
@@ -66,27 +45,135 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
     transaction: {
       original_amount: amount,
       original_currency: "USD",
-      converted_amount: amount * exchangeRateBank,
-      converted_currency: randomPair.split('/')[1],
-      exchange_rate_bank: exchangeRateBank,
-      currency_pair: randomPair,
+      converted_amount: amount * bankRate,
+      converted_currency: "EUR",
+      exchange_rate_bank: bankRate,
+      currency_pair: "USD/EUR",
       value_date: new Date().toISOString().split('T')[0]
     },
     fees: {
-      items: [{ name: "Wire Fee", amount: 25.00 }, { name: "Processing", amount: 15.00 }],
-      total_fees: 40.00
+      items: [{ name: "Wire Fee", amount: 25.00 }],
+      total_fees: 25.00
     },
     analysis: {
       mid_market_rate: baseRate,
-      cost_of_spread_usd: Number(estimatedSpreadCost.toFixed(2)),
-      total_cost_usd: Number((estimatedSpreadCost + 40).toFixed(2))
+      cost_of_spread_usd: amount * 0.027,
+      total_cost_usd: (amount * 0.027) + 25
     },
     dispute: {
       recommended: true,
-      reason: "Simulated High Spread Detected (2.5%)"
+      reason: "Simulated High Spread Detected (2.7%)"
     },
     source: 'simulation'
   };
+};
+
+// --- GEMINI EXTRACTION PIPELINE ---
+
+export const extractQuoteData = async (base64: string, mimeType: string = 'image/jpeg') => {
+  const apiKey = getGeminiKey();
+  if (!apiKey) {
+    console.warn("Atlas: No API Key found. Using simulation.");
+    return simulateExtraction();
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+  
+  const prompt = `
+    Analyze this bank transaction document (Image/PDF).
+    Extract the transaction details into JSON.
+    
+    Required Fields:
+    - bank_name
+    - transaction_reference
+    - sender_name
+    - beneficiary_name
+    - original_amount (number)
+    - original_currency (ISO code)
+    - converted_amount (number)
+    - converted_currency (ISO code)
+    - exchange_rate_bank (number)
+    - currency_pair (Format "BASE/QUOTE")
+    - value_date (YYYY-MM-DD)
+    - fees (array of {name, amount})
+    
+    If visual confidence is low, infer based on standard banking formats.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: {
+        parts: [
+          { inlineData: { mimeType, data: base64 } },
+          { text: prompt }
+        ]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            extraction: {
+              type: Type.OBJECT,
+              properties: {
+                bank_name: { type: Type.STRING },
+                transaction_reference: { type: Type.STRING },
+                sender_name: { type: Type.STRING },
+                beneficiary_name: { type: Type.STRING }
+              }
+            },
+            transaction: {
+              type: Type.OBJECT,
+              properties: {
+                original_amount: { type: Type.NUMBER },
+                original_currency: { type: Type.STRING },
+                converted_amount: { type: Type.NUMBER },
+                converted_currency: { type: Type.STRING },
+                exchange_rate_bank: { type: Type.NUMBER },
+                currency_pair: { type: Type.STRING },
+                value_date: { type: Type.STRING }
+              }
+            },
+            fees: {
+              type: Type.OBJECT,
+              properties: {
+                items: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      name: { type: Type.STRING },
+                      amount: { type: Type.NUMBER }
+                    }
+                  }
+                },
+                total_fees: { type: Type.NUMBER }
+              }
+            },
+            dispute: {
+              type: Type.OBJECT,
+              properties: {
+                 recommended: { type: Type.BOOLEAN },
+                 reason: { type: Type.STRING }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("Empty response from Gemini");
+    
+    const data = JSON.parse(text);
+    return { ...data, source: 'gemini-live' };
+
+  } catch (error) {
+    console.error("Atlas Extraction Error:", error);
+    // Fallback to simulation ensures the UI doesn't break if Gemini is down/quota exceeded
+    return simulateExtraction();
+  }
 };
 
 // --- SUPPORT CHAT ---

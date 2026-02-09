@@ -1,6 +1,6 @@
 import { LiveRate } from '../types';
 import { db } from './firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 
 // PAIRS CONFIGURATION
 const TRACKED_PAIRS = [
@@ -14,7 +14,7 @@ const TRACKED_PAIRS = [
   { id: 'usdmyr', symbol: 'USD/MYR', base: 4.750 },
 ];
 
-// --- RATEGUARD FX INTEGRATOR LOGIC (SIMULATION) ---
+// --- RATEGUARD FX INTEGRATOR LOGIC ---
 
 export interface MarketAudit {
   midMarketRate: number;
@@ -33,49 +33,80 @@ export const analyzeQuoteRealtime = async (
   dateStr?: string // YYYY-MM-DD
 ): Promise<MarketAudit> => {
   // 1. Normalize Pair
-  const cleanPair = pairStr.includes('/') ? pairStr : `USD/${pairStr}`;
-  const [base, quote] = cleanPair.split('/');
+  // pairStr input might be "USD/EUR" or "EURUSD"
+  let cleanPair = pairStr.replace('/', '').toUpperCase();
+  // Ensure format BASE_QUOTE for ID lookup if possible, or try both permutations
+  
+  // Default parsing logic assuming input is slash separated or standard 6 char
+  let base = 'USD';
+  let quote = 'EUR';
+  
+  if (pairStr.includes('/')) {
+    [base, quote] = pairStr.split('/');
+  } else if (pairStr.length === 6) {
+    base = pairStr.substring(0, 3);
+    quote = pairStr.substring(3, 6);
+  }
 
-  // 2. Determine Market Status & Date Context (Simulated Logic)
+  const docId1 = `${base}_${quote}`;
+  const docId2 = `${quote}_${base}`;
+
+  // 2. Determine Market Status & Date Context
   const now = new Date();
   const txDate = dateStr ? new Date(dateStr) : now;
+  // If tx is older than 24h, we ideally need historical data. 
+  // For this version, we'll flag it but use current live/stored data as proxy or simulation.
   const isHistorical = (now.getTime() - txDate.getTime()) > (24 * 60 * 60 * 1000);
-
-  // Market Hours: Closes Friday 5PM ET (~22:00 UTC), Opens Sunday 5PM ET
-  const day = now.getUTCDay(); // 0 = Sun, 6 = Sat
-  const hour = now.getUTCHours();
-  const isWeekend = (day === 6) || (day === 0 && hour < 22) || (day === 5 && hour >= 22);
 
   let marketStatus: 'Open' | 'Closed' | 'Historical' = 'Open';
   let source: 'Live API' | 'Stale/Friday' | 'Simulation' = 'Simulation';
   let note: string | undefined = undefined;
-  let dateToFetch = dateStr || now.toISOString().split('T')[0];
+  let midMarketRate = 0;
 
-  if (isHistorical) {
-    marketStatus = 'Historical';
-  } else if (isWeekend) {
-    marketStatus = 'Closed';
-    source = 'Stale/Friday';
-    
-    // Calculate last Friday's date
-    const friday = new Date();
-    const daysToFriday = (day + 2) % 7; 
-    friday.setDate(now.getDate() - daysToFriday);
-    dateToFetch = friday.toISOString().split('T')[0];
-    
-    note = `Live markets are closed. Using Friday's Closing Rate (${dateToFetch}) for this audit.`;
+  // 3. Attempt to fetch Real-Time Rate from Firestore
+  try {
+    // Try Direct Pair
+    let rateDoc = await getDoc(doc(db, "rates", docId1));
+    let inverted = false;
+
+    if (!rateDoc.exists()) {
+      // Try Inverted Pair
+      rateDoc = await getDoc(doc(db, "rates", docId2));
+      inverted = true;
+    }
+
+    if (rateDoc.exists()) {
+      const data = rateDoc.data();
+      const rawRate = data?.rate;
+      
+      if (rawRate) {
+        midMarketRate = inverted ? (1 / rawRate) : rawRate;
+        source = 'Live API';
+        // Check if data is stale (older than 24h)
+        const lastUpdated = data.date_time?.toMillis ? data.date_time.toMillis() : Date.parse(data.last_updated);
+        if (Date.now() - lastUpdated > 24 * 60 * 60 * 1000) {
+           source = 'Stale/Friday';
+           note = `Market data is from ${new Date(lastUpdated).toLocaleDateString()}. Markets may be closed.`;
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Rate fetch error, falling back to simulation", err);
   }
 
-  // 3. Generate Simulated Mid-Market Rate
-  // Find base rate and apply slight variation
-  const found = TRACKED_PAIRS.find(p => p.symbol.includes(quote) || p.symbol.includes(base));
-  const baseRate = found ? found.base : 1.0;
-  
-  // Add deterministic "noise" based on date characters to simulate historical variance
-  const dateHash = dateToFetch.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const midMarketRate = baseRate * (1 + ((dateHash % 100) / 10000) * (Math.random() > 0.5 ? 1 : -1));
+  // 4. Fallback to Simulation if Live Data Missing
+  if (midMarketRate === 0) {
+    const found = TRACKED_PAIRS.find(p => p.symbol.includes(quote) || p.symbol.includes(base));
+    const baseRate = found ? found.base : 1.0;
+    // Add deterministic noise
+    const dateHash = (dateStr || now.toISOString()).split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    midMarketRate = baseRate * (1 + ((dateHash % 100) / 10000) * (Math.random() > 0.5 ? 1 : -1));
+    source = 'Simulation';
+    note = "Live rate unavailable for this pair. Using estimated historical close.";
+  }
 
-  // 4. RateGuard Calculation: 'Spread' = ((Bank Rate - Market Rate) / Market Rate) * 100
+  // 5. RateGuard Calculation
+  // Spread = |(Bank Rate - Mid Rate)| / Mid Rate
   const spreadAbs = Math.abs(bankRate - midMarketRate); 
   const spreadPct = (spreadAbs / midMarketRate) * 100;
   
@@ -96,7 +127,7 @@ export const analyzeQuoteRealtime = async (
 // --- SIMULATION & TICKER LOGIC ---
 
 /**
- * High-Fidelity Simulation Generator (For Dashboard Ticker)
+ * High-Fidelity Simulation Generator (For Dashboard Ticker Fallback)
  */
 export const generateLiveRates = (count: number = 8): LiveRate[] => {
   const now = Date.now();
@@ -104,26 +135,10 @@ export const generateLiveRates = (count: number = 8): LiveRate[] => {
 
   for (let i = 0; i < count; i++) {
     const pair = TRACKED_PAIRS[i % TRACKED_PAIRS.length];
-    
-    // 1. Organic Volatility (Random Walk)
-    const noise = Math.random() * (i >= TRACKED_PAIRS.length ? 0.005 : 0);
-    const volatility = (Math.random() - 0.5) * 0.002; 
-    const midMarket = pair.base * (1 + volatility + noise);
-    
-    // 2. Bank Spread Logic (The "Rip-off" Rate)
-    const bankSpreadPct = 0.022; 
-    const bankRate = midMarket * (1 + bankSpreadPct);
-
-    // 3. RateGuard Spread Logic (The "Fair" Rate)
-    const guardSpreadPct = 0.003;
-    const guardRate = midMarket * (1 + guardSpreadPct);
-
-    // 4. Calculate Leakage (Pips)
-    const leakage = bankRate - guardRate;
-    const pips = Math.abs(Math.round(leakage * 10000));
-
-    // 5. Trend Determination
-    const trend = Math.random() > 0.5 ? 'up' : 'down';
+    const noise = Math.random() * 0.005;
+    const midMarket = pair.base * (1 + noise);
+    const bankRate = midMarket * 1.022;
+    const guardRate = midMarket * 1.003;
 
     rates.push({
       id: `rate_${pair.id}_${now}_${i}`,
@@ -132,11 +147,10 @@ export const generateLiveRates = (count: number = 8): LiveRate[] => {
       midMarketRate: parseFloat(midMarket.toFixed(5)),
       bankRate: parseFloat(bankRate.toFixed(5)),
       rateGuardRate: parseFloat(guardRate.toFixed(5)),
-      savingsPips: pips,
-      trend: trend
+      savingsPips: Math.round((bankRate - guardRate) * 10000),
+      trend: Math.random() > 0.5 ? 'up' : 'down'
     });
   }
-
   return rates;
 };
 
@@ -151,15 +165,20 @@ export const fetchMarketRates = async (): Promise<{ source: 'live' | 'simulated'
       const realRates: LiveRate[] = [];
       querySnapshot.forEach((doc) => {
         const data = doc.data();
+        const pairName = doc.id.replace('_', '/'); // USD_EUR -> USD/EUR
+        
+        // Safety check for rate
+        if (!data.rate) return;
+
         realRates.push({
           id: doc.id,
-          pair: doc.id.replace('_', '/'),
-          timestamp: data.date_time ? data.date_time.toMillis() : Date.now(),
+          pair: pairName,
+          timestamp: data.date_time ? (data.date_time.toMillis ? data.date_time.toMillis() : Date.parse(data.last_updated)) : Date.now(),
           midMarketRate: data.rate,
-          bankRate: data.bank_spread,
-          rateGuardRate: data.rate * 1.003, // Internal logic
-          savingsPips: Math.round(data.leakage * 10000),
-          trend: 'up' // Simple placeholder
+          bankRate: data.bank_spread || (data.rate * 1.025),
+          rateGuardRate: data.rate * 1.003, // Fair rate
+          savingsPips: data.leakage ? Math.round(data.leakage * 10000) : 250,
+          trend: 'up' // Directional data could be stored in future
         });
       });
       return { source: 'live', rates: realRates };
@@ -168,7 +187,6 @@ export const fetchMarketRates = async (): Promise<{ source: 'live' | 'simulated'
     console.warn("Firestore Rate Fetch Failed, falling back to simulation.", err);
   }
 
-  // Fallback
   return { source: 'simulated', rates: generateLiveRates(TRACKED_PAIRS.length) };
 };
 
