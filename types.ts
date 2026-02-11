@@ -14,27 +14,116 @@ export interface TeamMember {
   activity: string;
 }
 
+export interface FeeItem {
+  type: string;
+  amount: number;
+  currency: string;
+  percentage?: string | null;
+  description?: string;
+  category?: 'wire' | 'fx' | 'correspondent' | 'other';
+}
+
+export interface CostBreakdownItem {
+  amount: number;
+  percentage: number;
+  label: string;
+}
+
 export interface QuoteData {
   id: string; // Firestore AutoID
-  userId: string;
   orgId: string;
-  bank: string; // Renamed from carrier
-  pair: string; // Renamed from origin/destination (e.g. USD/EUR)
-  amount: number; // The principal amount
-  exchangeRate: number; // The executed rate
-  midMarketRate?: number; // The fair rate at that time
-  markupCost: number; // The hidden fee calculated (Spread cost)
-  totalCost?: number; // Total cost including explicit fees and spread
-  fees: Array<{ name: string; amount: number }>; // Explicit fees
-  valueDate: string; // Settlement date
-  status: 'pending' | 'analyzed' | 'flagged' | 'optimal';
-  workflowStatus: 'uploaded' | 'analyzed' | 'reviewed' | 'approved';
-  disputeDrafted?: boolean;
-  reliabilityScore: number;
-  notes: Comment[];
-  pdfBase64?: string;
-  geminiRaw?: any;
+  userId: string;
   createdAt: number;
+  updatedAt: number;
+  
+  // Status Tracking
+  status: 'uploaded' | 'processing' | 'analyzed' | 'flagged' | 'optimal' | 'error';
+  workflowStatus: 'uploaded' | 'ocr_complete' | 'extracted' | 'analyzed' | 'reviewed' | 'approved' | 'error';
+  reliabilityScore: number;
+  
+  // Source Document
+  fileUrl?: string; // Optional if using base64 for demo
+  fileType?: string;
+  fileName?: string;
+  pdfBase64?: string | null;
+  ocrText?: string;
+  
+  // Extracted Bank Information
+  bank: string;
+  bankCode?: string;
+  referenceNumber?: string;
+  transactionDate?: string;
+  valueDate: string;
+  senderName?: string;
+  recipientName?: string;
+  
+  // Transaction Details
+  amount: number; // Original amount
+  originalCurrency?: string;
+  convertedAmount?: number;
+  convertedCurrency?: string;
+  pair: string; // "USD/EUR"
+  
+  // Exchange Rates
+  exchangeRate: number; // Bank Rate
+  midMarketRate: number; // Real market rate
+  
+  // DETAILED FEE STRUCTURE
+  fees: FeeItem[];
+  
+  // INDIVIDUAL FEE COMPONENTS
+  wireFee: number;
+  fxFee: number;
+  correspondentFee: number;
+  otherFees: number;
+  totalFees: number; // Sum of explicit fees
+  
+  // HIDDEN COST CALCULATIONS
+  spreadDecimal: number;
+  spreadPercentage: number;
+  markupCost: number; // Spread Cost
+  
+  // TOTAL HIDDEN COST
+  totalHiddenCost: number; // totalFees + markupCost
+  totalHiddenPercentage: number;
+  
+  // COST BREAKDOWN
+  costBreakdown: {
+    fees: CostBreakdownItem;
+    spread: CostBreakdownItem;
+    total: CostBreakdownItem;
+  };
+  
+  // ANNUALIZED PROJECTIONS
+  annualTransactionCount: number;
+  annualizedHiddenCost: number;
+  monthlyAverageCost: number;
+  
+  // INDUSTRY COMPARISON
+  industryAverageSpread: number;
+  industryAverageTotalCost: number;
+  yourCostVsIndustry: number;
+  betterThanIndustry: boolean;
+  percentileRank: string;
+  potentialSavingsPercent: number;
+  
+  // DISPUTE & RECOMMENDATIONS
+  dispute: {
+    recommended: boolean;
+    priority: "high" | "medium" | "low";
+    reason: string;
+    suggestedNegotiatedRate: number;
+    targetSpreadPercentage: number;
+    potentialSavingsPerTransaction: number;
+    potentialAnnualSavings: number;
+    disputeLetterGenerated: boolean;
+    disputeLetterText?: string | null;
+  };
+  
+  // RAW DATA & USER ACTIONS
+  geminiRaw?: any;
+  disputeDrafted?: boolean;
+  notes: Comment[];
 }
 
 export interface LiveRate {
@@ -46,17 +135,6 @@ export interface LiveRate {
   rateGuardRate: number;
   savingsPips: number;
   trend: 'up' | 'down';
-}
-
-export interface LaneTrend {
-  lane: string;
-  history: Array<{ date: string; rate: number }>;
-}
-
-export interface CompanyProfile {
-  name: string;
-  profitGoal: number;
-  currency: string;
 }
 
 export interface Organization {
@@ -73,13 +151,12 @@ export interface Audit {
   id: string;
   orgId: string;
   userId: string;
-  userName: string;
-  pair: string;
-  amount: number;
-  bankRate: number;
-  midMarketRate: number;
-  leakage: number;
+  quoteId: string;
   timestamp: number;
+  leakageAmount: number;
+  leakagePercentage: number;
+  pair: string;
+  bank: string;
 }
 
 export interface UserProfile {

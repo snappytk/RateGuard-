@@ -1,6 +1,5 @@
-import { LiveRate } from '../types';
 import { db } from './firebase';
-import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 
 // PAIRS CONFIGURATION
 const TRACKED_PAIRS = [
@@ -132,80 +131,4 @@ export const analyzeQuoteRealtime = async (
     source,
     note
   };
-};
-
-// --- SIMULATION & TICKER LOGIC ---
-
-/**
- * High-Fidelity Simulation Generator (For Dashboard Ticker Fallback)
- */
-export const generateLiveRates = (count: number = 8): LiveRate[] => {
-  const now = Date.now();
-  const rates: LiveRate[] = [];
-
-  for (let i = 0; i < count; i++) {
-    const pair = TRACKED_PAIRS[i % TRACKED_PAIRS.length];
-    const noise = Math.random() * 0.005;
-    const midMarket = pair.base * (1 + noise);
-    const bankRate = midMarket * 1.022;
-    const guardRate = midMarket * 1.003;
-
-    rates.push({
-      id: `rate_${pair.id}_${now}_${i}`,
-      pair: pair.symbol,
-      timestamp: now,
-      midMarketRate: parseFloat(midMarket.toFixed(5)),
-      bankRate: parseFloat(bankRate.toFixed(5)),
-      rateGuardRate: parseFloat(guardRate.toFixed(5)),
-      savingsPips: Math.round((bankRate - guardRate) * 10000),
-      trend: Math.random() > 0.5 ? 'up' : 'down'
-    });
-  }
-  return rates;
-};
-
-/**
- * Primary Data Fetcher
- * Strategy: Check Firestore for 'rates' collection. If empty, fall back to simulation.
- */
-export const fetchMarketRates = async (): Promise<{ source: 'live' | 'simulated', rates: LiveRate[] }> => {
-  try {
-    const querySnapshot = await getDocs(collection(db, "rates"));
-    if (!querySnapshot.empty) {
-      const realRates: LiveRate[] = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        const pairName = doc.id.replace('_', '/'); // USD_EUR -> USD/EUR
-        
-        // Safety check for rate
-        if (!data.rate) return;
-
-        realRates.push({
-          id: doc.id,
-          pair: pairName,
-          timestamp: data.date_time ? (data.date_time.toMillis ? data.date_time.toMillis() : Date.parse(data.last_updated)) : Date.now(),
-          midMarketRate: data.rate,
-          bankRate: data.bank_spread || (data.rate * 1.025),
-          rateGuardRate: data.rate * 1.003, // Fair rate
-          savingsPips: data.leakage ? Math.round(data.leakage * 10000) : 250,
-          trend: 'up' // Directional data could be stored in future
-        });
-      });
-      return { source: 'live', rates: realRates };
-    }
-  } catch (err) {
-    console.warn("Firestore Rate Fetch Failed, falling back to simulation.", err);
-  }
-
-  return { source: 'simulated', rates: generateLiveRates(TRACKED_PAIRS.length) };
-};
-
-export const downloadRatesJSON = (rates: LiveRate[]) => {
-  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(rates, null, 2));
-  const downloadAnchorNode = document.createElement('a');
-  downloadAnchorNode.setAttribute("href", dataStr);
-  downloadAnchorNode.setAttribute("download", "rate_guard_live_rates.json");
-  document.body.appendChild(downloadAnchorNode);
-  downloadAnchorNode.click();
-  downloadAnchorNode.remove();
 };

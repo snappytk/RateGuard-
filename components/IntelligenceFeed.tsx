@@ -1,10 +1,13 @@
+
 import React, { useState, useRef } from 'react';
-import { FileText, Loader2, AlertTriangle, MessageSquare, X, Send, Cpu, Search, Lock, ScanLine, Upload, ChevronRight, CheckCircle } from 'lucide-react';
+import { FileText, Loader2, AlertTriangle, X, Upload, ScanLine, Cpu } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { extractQuoteData } from '../services/gemini';
 import { saveQuoteToFirestore } from '../services/firebase';
 import { analyzeQuoteRealtime } from '../services/marketData';
-import { QuoteData, Comment, UserProfile } from '../types';
+import { calculateAllCosts } from '../services/calculations';
+import { QuoteData, UserProfile } from '../types';
+import QuoteAnalysis from './QuoteAnalysis';
 
 interface IntelligenceFeedProps {
   quotes: QuoteData[];
@@ -38,7 +41,6 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
   const [isUploading, setIsUploading] = useState(false);
   const [statusText, setStatusText] = useState('Initializing Node...');
   const [activeQuoteId, setActiveQuoteId] = useState<string | null>(null);
-  const [newComment, setNewComment] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -48,11 +50,9 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Reset States
     setErrorMsg(null);
     setStatusText("Encrypting Stream...");
     
-    // 1. Validation
     if (file.size > 5000000) { 
       setErrorMsg("File Size Exceeded. Must be under 5MB.");
       return;
@@ -75,7 +75,6 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
     setIsUploading(true);
 
     try {
-      // 2. Convert to Base64
       const reader = new FileReader();
       reader.readAsDataURL(file);
       reader.onload = async () => {
@@ -83,40 +82,74 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
           const base64 = (reader.result as string).split(',')[1];
           const mimeType = file.type || 'image/jpeg';
           
-          // 3. AI Extraction
-          setStatusText("Atlas AI: Extracting Trade Data...");
+          // 1. AI Extraction
+          setStatusText("Atlas AI: Extraction & Normalization...");
           const extractionResult = await extractQuoteData(base64, mimeType);
 
-          // 4. Market Analysis
-          setStatusText("Profit Guard: Benchmarking Rates...");
-          const quoteDetails = extractionResult.transaction || {};
+          // 2. Fetch Market Data for Mid-Market Rate
+          setStatusText("RateGuard: Fetching Live Mid-Market...");
+          const txDetails = extractionResult.transaction || {};
           const audit = await analyzeQuoteRealtime(
-            quoteDetails.currency_pair || "USD/EUR",
-            quoteDetails.exchange_rate_bank || 1.0,
-            quoteDetails.original_amount || 10000,
-            quoteDetails.value_date
+            txDetails.currency_pair || "USD/EUR",
+            txDetails.exchange_rate_bank || 1.0,
+            txDetails.original_amount || 10000,
+            txDetails.value_date
           );
 
-          // 5. Merge Data
+          // 3. Detailed Calculation Engine
+          setStatusText("Profit Guard: Running Financial Models...");
+          const calculationResult = calculateAllCosts(
+            { ...txDetails, fees: extractionResult.fees },
+            audit.midMarketRate
+          );
+
+          // 4. Merge Data
           const finalQuoteData: Partial<QuoteData> = {
             bank: extractionResult.extraction?.bank_name || "Unknown Bank",
-            pair: quoteDetails.currency_pair || "USD/EUR",
-            amount: quoteDetails.original_amount || 0,
-            exchangeRate: quoteDetails.exchange_rate_bank || 0,
+            pair: txDetails.currency_pair || "USD/EUR",
+            amount: txDetails.original_amount || 0,
+            exchangeRate: txDetails.exchange_rate_bank || 0,
             midMarketRate: audit.midMarketRate,
-            markupCost: audit.markupCost,
-            valueDate: quoteDetails.value_date,
-            fees: extractionResult.fees?.items || [],
+            valueDate: txDetails.value_date,
+            
+            // Rich Calculation Data
+            fees: calculationResult.fees,
+            wireFee: calculationResult.wireFee,
+            fxFee: calculationResult.fxFee,
+            correspondentFee: calculationResult.correspondentFee,
+            otherFees: calculationResult.otherFees,
+            totalFees: calculationResult.totalFees,
+            
+            spreadDecimal: calculationResult.spreadDecimal,
+            spreadPercentage: calculationResult.spreadPercentage,
+            markupCost: calculationResult.markupCost,
+            
+            totalHiddenCost: calculationResult.totalHiddenCost,
+            totalHiddenPercentage: calculationResult.totalHiddenPercentage,
+            costBreakdown: calculationResult.costBreakdown,
+            
+            annualTransactionCount: calculationResult.annualTransactionCount,
+            annualizedHiddenCost: calculationResult.annualizedHiddenCost,
+            monthlyAverageCost: calculationResult.monthlyAverageCost,
+            
+            industryAverageSpread: calculationResult.industryAverageSpread,
+            industryAverageTotalCost: calculationResult.industryAverageTotalCost,
+            yourCostVsIndustry: calculationResult.yourCostVsIndustry,
+            betterThanIndustry: calculationResult.betterThanIndustry,
+            percentileRank: calculationResult.percentileRank,
+            potentialSavingsPercent: calculationResult.potentialSavingsPercent,
+            
+            dispute: calculationResult.dispute,
+            reliabilityScore: 85,
             geminiRaw: extractionResult
           };
 
-          // 6. Save to Firestore
+          // 5. Save to Firestore
           setStatusText("Finalizing Audit Record...");
           const saveResult = await saveQuoteToFirestore(currentUid, currentOrgId, finalQuoteData, base64, extractionResult);
 
           if (saveResult.success) {
-            onAddQuote(saveResult as QuoteData); // Optimistic Update
-            // Update credits locally if not enterprise
+            onAddQuote(saveResult as unknown as QuoteData);
             if (!isEnterprise && onProfileUpdate && userProfile) {
                 onProfileUpdate({ credits: userProfile.credits - 1 });
             }
@@ -129,7 +162,6 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
           setErrorMsg(err.message || "Analysis Failed");
         } finally {
           setIsUploading(false);
-          // Clear input
           if (fileInputRef.current) fileInputRef.current.value = '';
         }
       };
@@ -147,7 +179,6 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
       initial="hidden"
       animate="visible"
     >
-      {/* LEFT: Feed & Upload */}
       <div className="lg:col-span-2 flex flex-col gap-6 h-full overflow-hidden">
         
         {/* Upload Area */}
@@ -202,7 +233,6 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
               )}
             </AnimatePresence>
 
-            {/* Background Effects */}
             {!isUploading && (
                <div className="absolute inset-0 bg-blue-600/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
             )}
@@ -242,7 +272,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
                       <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg shadow-inner ${
                          quote.status === 'flagged' ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500'
                       }`}>
-                         {quote.bank[0]}
+                         {quote.bank ? quote.bank[0] : '?'}
                       </div>
                       <div>
                          <h4 className="font-bold text-white text-lg">{quote.bank}</h4>
@@ -256,7 +286,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
                     
                     <div className="text-right">
                        <div className={`text-xl font-black font-mono ${quote.status === 'flagged' ? 'text-red-500' : 'text-zinc-400'}`}>
-                          ${quote.markupCost?.toFixed(2)}
+                          ${quote.totalHiddenCost?.toFixed(2)}
                        </div>
                        <div className="text-[9px] font-bold uppercase text-zinc-600 tracking-wider">Hidden Cost</div>
                     </div>
@@ -272,80 +302,9 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
         </div>
       </div>
 
-      {/* RIGHT: Detail View */}
       <AnimatePresence mode="wait">
         {activeQuote ? (
-          <motion.div 
-            key={activeQuote.id}
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 20 }}
-            className="bg-[#121826]/60 border border-zinc-800 rounded-[2.5rem] p-8 h-full overflow-y-auto custom-scrollbar relative shadow-2xl"
-          >
-             <button 
-               onClick={() => setActiveQuoteId(null)}
-               className="absolute top-6 right-6 p-2 text-zinc-500 hover:text-white transition-colors"
-             >
-               <X size={20} />
-             </button>
-
-             <div className="space-y-8">
-                <div>
-                   <div className="inline-flex items-center gap-2 px-3 py-1 bg-zinc-900 rounded-full text-[10px] font-black text-zinc-500 uppercase tracking-widest border border-zinc-800 mb-4">
-                      <Cpu size={12} /> Atlas ID: {activeQuote.id.slice(0, 8)}
-                   </div>
-                   <h2 className="text-3xl font-black text-white tracking-tighter mb-1">{activeQuote.bank}</h2>
-                   <p className="text-zinc-500 font-mono text-sm">{activeQuote.pair} Execution Analysis</p>
-                </div>
-
-                <div className="space-y-4">
-                   <div className="p-6 bg-zinc-900 rounded-[1.5rem] border border-zinc-800 space-y-4">
-                      <div className="flex justify-between items-center pb-4 border-b border-zinc-800">
-                         <span className="text-xs text-zinc-500 font-bold uppercase">Bank Rate</span>
-                         <span className="text-xl font-mono text-white font-bold">{activeQuote.exchangeRate}</span>
-                      </div>
-                      <div className="flex justify-between items-center pb-4 border-b border-zinc-800">
-                         <span className="text-xs text-zinc-500 font-bold uppercase">Mid-Market</span>
-                         <span className="text-xl font-mono text-emerald-500 font-bold">{activeQuote.midMarketRate?.toFixed(5)}</span>
-                      </div>
-                      <div className="flex justify-between items-center pt-2">
-                         <span className="text-xs text-red-500 font-black uppercase">Spread Cost</span>
-                         <span className="text-2xl font-mono text-red-500 font-black">${activeQuote.markupCost?.toFixed(2)}</span>
-                      </div>
-                   </div>
-
-                   {/* AI Insight */}
-                   <div className="p-6 bg-blue-600/10 border border-blue-600/20 rounded-[1.5rem] space-y-3">
-                      <div className="flex items-center gap-2 text-blue-400 font-black text-xs uppercase tracking-widest">
-                         <Search size={14} /> AI Recommendation
-                      </div>
-                      <p className="text-sm text-blue-100 leading-relaxed font-medium">
-                         {activeQuote.status === 'flagged' 
-                           ? "This quote exceeds your 1.5% markup threshold. We recommend initiating a dispute for the $200+ drift."
-                           : "This rate is within acceptable market bounds. No action needed."}
-                      </p>
-                      {activeQuote.status === 'flagged' && (
-                         <button className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg">
-                            Draft Dispute Email
-                         </button>
-                      )}
-                   </div>
-
-                   {/* Fees */}
-                   {activeQuote.fees && activeQuote.fees.length > 0 && (
-                     <div className="space-y-3">
-                        <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Explicit Fees</h4>
-                        {activeQuote.fees.map((fee, i) => (
-                           <div key={i} className="flex justify-between items-center p-3 bg-zinc-900/50 rounded-xl border border-zinc-800/50">
-                              <span className="text-sm text-zinc-300 font-medium">{fee.name}</span>
-                              <span className="text-sm text-white font-bold">${fee.amount.toFixed(2)}</span>
-                           </div>
-                        ))}
-                     </div>
-                   )}
-                </div>
-             </div>
-          </motion.div>
+          <QuoteAnalysis quote={activeQuote} onClose={() => setActiveQuoteId(null)} />
         ) : (
           <div className="hidden lg:flex flex-col items-center justify-center h-full text-center p-10 border border-zinc-800 rounded-[2.5rem] bg-[#121826]/20 border-dashed">
              <div className="w-24 h-24 bg-zinc-900 rounded-[2rem] flex items-center justify-center mb-6 text-zinc-700 shadow-xl">

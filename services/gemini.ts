@@ -52,17 +52,8 @@ const simulateExtraction = async () => {
       value_date: new Date().toISOString().split('T')[0]
     },
     fees: {
-      items: [{ name: "Wire Fee", amount: 25.00 }],
-      total_fees: 25.00
-    },
-    analysis: {
-      mid_market_rate: baseRate,
-      cost_of_spread_usd: amount * 0.027,
-      total_cost_usd: (amount * 0.027) + 25
-    },
-    dispute: {
-      recommended: true,
-      reason: "Simulated High Spread Detected (2.7%)"
+      items: [{ name: "Wire Fee", amount: 25.00 }, { name: "Correspondent Fee", amount: 15.00 }],
+      total_fees: 40.00
     },
     source: 'simulation'
   };
@@ -82,6 +73,8 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
   const prompt = `
     Analyze this bank transaction document (Image/PDF).
     Extract the transaction details into JSON.
+    
+    CRITICAL: Look for all fee line items (Wire Fee, FX Fee, Commission, etc.) and list them individually.
     
     Required Fields:
     - bank_name
@@ -149,13 +142,6 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
                   }
                 },
                 total_fees: { type: Type.NUMBER }
-              }
-            },
-            dispute: {
-              type: Type.OBJECT,
-              properties: {
-                 recommended: { type: Type.BOOLEAN },
-                 reason: { type: Type.STRING }
               }
             }
           }

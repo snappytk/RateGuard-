@@ -30,7 +30,7 @@ import {
   arrayUnion,
   runTransaction
 } from "firebase/firestore";
-import { UserProfile, QuoteData, LiveRate, Audit, Organization } from "../types";
+import { UserProfile, QuoteData, Audit, Organization } from "../types";
 
 // Helper for Robust Env Vars
 const getEnv = (key: string) => {
@@ -183,40 +183,34 @@ export const fetchOrgQuotes = async (orgId: string): Promise<QuoteData[]> => {
   } catch (error) { console.error(error); return []; }
 };
 
-export const saveQuoteToFirestore = async (userId: string, orgId: string, quoteData: Partial<QuoteData>, pdfBase64: string, geminiRaw: any): Promise<{success: true, id: string, [key: string]: any} | {success: false, error: any}> => {
+export const saveQuoteToFirestore = async (
+  userId: string, 
+  orgId: string, 
+  quoteData: Partial<QuoteData>, 
+  pdfBase64: string, 
+  geminiRaw: any
+): Promise<{success: true, id: string, [key: string]: any} | {success: false, error: any}> => {
   try {
     if (!userId || !orgId) throw new Error("Missing ID.");
 
     // SAFETY CHECK: Firestore limit is 1MB. If file is close to limit, do NOT save base64.
     let safePdfBase64: string | null = pdfBase64;
-    const sizeInBytes = (pdfBase64.length * 3) / 4; // Approx base64 decoding size
-    if (sizeInBytes > 900000) { // 900KB limit
+    const sizeInBytes = (pdfBase64.length * 3) / 4; 
+    if (sizeInBytes > 900000) { 
         console.warn("PDF too large for Firestore document. Saving metadata only.");
         safePdfBase64 = null; 
     }
 
-    const amount = Number(quoteData.amount) || 0;
-    const markupCost = quoteData.markupCost !== undefined ? Number(quoteData.markupCost) : amount * 0.022;
-    
     const newQuote = {
+      ...quoteData,
       userId,
       orgId,
-      status: markupCost > 200 ? 'flagged' : 'analyzed',
-      workflowStatus: 'uploaded',
-      bank: quoteData.bank || 'Unknown Bank',
-      pair: quoteData.pair || 'USD/EUR',
-      amount: amount,
-      exchangeRate: Number(quoteData.exchangeRate) || 1.0,
-      midMarketRate: Number(quoteData.midMarketRate) || 0,
-      markupCost: markupCost,
-      totalCost: Number(quoteData.totalCost) || 0,
-      fees: quoteData.fees || [],
-      valueDate: quoteData.valueDate || new Date().toISOString().split('T')[0],
-      disputeDrafted: !!quoteData.disputeDrafted,
+      status: (quoteData.dispute?.recommended) ? 'flagged' : 'optimal',
+      workflowStatus: 'analyzed',
       pdfBase64: safePdfBase64,
       geminiRaw,
       createdAt: Date.now(),
-      reliabilityScore: 85,
+      updatedAt: Date.now(),
       notes: []
     };
 
@@ -224,6 +218,19 @@ export const saveQuoteToFirestore = async (userId: string, orgId: string, quoteD
     const sanitizedQuote = JSON.parse(JSON.stringify(newQuote));
 
     const docRef = await addDoc(collection(db, "quotes"), sanitizedQuote);
+    
+    // Create Audit Record
+    await addDoc(collection(db, "audits"), {
+        quoteId: docRef.id,
+        orgId,
+        userId,
+        timestamp: Date.now(),
+        leakageAmount: quoteData.totalHiddenCost,
+        leakagePercentage: quoteData.totalHiddenPercentage,
+        pair: quoteData.pair,
+        bank: quoteData.bank
+    });
+
     await updateDoc(doc(db, "users", userId), { credits: increment(-1) });
 
     return { success: true, id: docRef.id, ...newQuote };
@@ -270,30 +277,6 @@ export const addTeammateByUID = async (ownerUid: string, colleagueUid: string) =
   } catch (e: any) { return { success: false, error: e.message }; }
 };
 
-// --- REAL-TIME RATES LISTENER ---
-export const listenToRates = (cb: (rates: LiveRate[]) => void) => {
-  const q = query(collection(db, "rates"));
-  return onSnapshot(q, (snapshot) => {
-    const rates: LiveRate[] = [];
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      // Map Firestore "Backend" format to Frontend "LiveRate" format
-      rates.push({
-        id: doc.id,
-        pair: doc.id.replace('_', '/'),
-        timestamp: data.date_time ? data.date_time.toMillis() : Date.now(),
-        midMarketRate: data.rate,
-        bankRate: data.bank_spread,
-        rateGuardRate: data.rate * 1.003, // Internal "Fair" rate logic (0.3% markup)
-        savingsPips: Math.round(data.leakage * 10000),
-        trend: Math.random() > 0.5 ? 'up' : 'down' // Trend is calculated visually or needs history
-      });
-    });
-    cb(rates);
-  });
-};
-
-export const updateLiveRates = async () => {};
 export const listenToOrgAudits = (orgId: string, cb: (audits: Audit[]) => void) => {
   if (!orgId) return () => {};
   const q = query(collection(db, "audits"), where("orgId", "==", orgId), orderBy("timestamp", "desc"));

@@ -1,9 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { TrendingUp, ShieldCheck, Zap, ChevronRight, AlertCircle, CheckCircle, Loader2, ArrowUpRight, ArrowDownRight, Activity, Globe, RefreshCcw } from 'lucide-react';
-import { QuoteData, AppView, LiveRate } from '../types';
-import { fetchMarketRates } from '../services/marketData';
-import { listenToRates } from '../services/firebase';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState } from 'react';
+import { ShieldCheck, Zap, ChevronRight, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
+import { QuoteData, AppView } from '../types';
+import { motion } from 'framer-motion';
 
 interface DashboardHomeProps {
   quotes: QuoteData[];
@@ -36,53 +34,12 @@ const itemVariants = {
 
 const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onUpdateQuote }) => {
   const [isApproving, setIsApproving] = useState(false);
-  const [marketRates, setMarketRates] = useState<LiveRate[]>([]);
-  const [source, setSource] = useState<'live' | 'simulated'>('simulated');
   
-  // Real-time Update States
-  const [pendingRates, setPendingRates] = useState<LiveRate[] | null>(null);
-  const [showUpdateNotification, setShowUpdateNotification] = useState(false);
-
   const flaggedCount = quotes?.filter(q => q.status === 'flagged').length || 0;
   const pendingReview = quotes?.filter(q => q.workflowStatus === 'reviewed').length || 0;
 
   // Calculate Total Recovered
   const totalRecovered = quotes?.reduce((acc, q) => acc + (q.markupCost || 0), 0) || 0;
-
-  useEffect(() => {
-    // Initial Fetch
-    const initLoad = async () => {
-      const data = await fetchMarketRates();
-      setMarketRates(data.rates);
-      setSource(data.source);
-    };
-    initLoad();
-
-    // Listen for Firestore Updates
-    const unsubscribe = listenToRates((newRates) => {
-      if (newRates.length > 0) {
-        setSource('live'); // If we get data here, we are live
-        setPendingRates(newRates);
-        
-        // Only show notification if we already have rates loaded to compare timestamps
-        // or simply show it whenever new data arrives from the listener (simulating "Push")
-        setShowUpdateNotification(true);
-      }
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  const handleRefreshRates = () => {
-    if (pendingRates) {
-      setMarketRates(pendingRates);
-      setShowUpdateNotification(false);
-    } else {
-      // Fallback if pending is null but user clicked refresh
-      fetchMarketRates().then(data => setMarketRates(data.rates));
-      setShowUpdateNotification(false);
-    }
-  };
 
   const handleBatchApprove = () => {
     if (!onUpdateQuote || !quotes) return;
@@ -104,28 +61,6 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onU
       initial="hidden"
       animate="visible"
     >
-      {/* Update Notification */}
-      <AnimatePresence>
-        {showUpdateNotification && (
-          <motion.div 
-            initial={{ y: -50, opacity: 0 }} 
-            animate={{ y: 0, opacity: 1 }} 
-            exit={{ y: -50, opacity: 0 }}
-            className="absolute top-0 left-0 right-0 z-50 flex justify-center -mt-4 pointer-events-none"
-          >
-             <div className="bg-blue-600 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-4 pointer-events-auto cursor-pointer hover:scale-105 transition-transform" onClick={handleRefreshRates}>
-                <div className="flex items-center gap-2 text-sm font-bold">
-                   <Activity size={18} className="animate-pulse" />
-                   Exchange rates have been updated.
-                </div>
-                <button className="px-3 py-1 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-black uppercase tracking-widest flex items-center gap-2">
-                   <RefreshCcw size={12} /> Refresh
-                </button>
-             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       <motion.div variants={itemVariants} className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
           <h2 className="text-4xl font-black text-white tracking-tighter mb-2">Treasury Digest</h2>
@@ -139,47 +74,6 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onU
                  <div className="text-xl font-black text-white">${totalRecovered.toLocaleString()}</div>
               </div>
            </div>
-        </div>
-      </motion.div>
-
-      {/* Massive FX Ticker */}
-      <motion.div variants={itemVariants} className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden py-3 relative">
-        <div className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-[#0e121b] to-transparent w-20 z-10 pointer-events-none" />
-        <div className="absolute right-0 top-0 bottom-0 bg-gradient-to-l from-[#0e121b] to-transparent w-20 z-10 pointer-events-none" />
-        
-        <div className="flex items-center gap-4 px-6 border-b border-zinc-800/50 pb-2 mb-2">
-           <div className={`w-2 h-2 rounded-full ${source === 'live' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-           <span className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em]">
-             Massive FX Feed {source === 'simulated' && '(Simulation Mode)'}
-           </span>
-        </div>
-
-        <div className="flex items-center gap-8 pl-4 overflow-x-auto no-scrollbar">
-           {!marketRates || marketRates.length === 0 ? (
-             <div className="text-xs text-zinc-600 animate-pulse px-4">Initializing Feed...</div>
-           ) : (
-             marketRates.map((rate) => (
-               <div key={rate.id} className="flex items-center gap-4 shrink-0 pr-8 border-r border-zinc-800/50 last:border-0">
-                 <div className="space-y-0.5">
-                    <span className="text-xs font-bold text-zinc-300 block">{rate.pair}</span>
-                    <div className="flex items-center gap-1">
-                      <span className={`text-xs font-mono font-black ${rate.trend === 'up' ? 'text-emerald-500' : 'text-red-500'}`}>
-                        {rate.midMarketRate?.toFixed(5)}
-                      </span>
-                      {rate.trend === 'up' ? <ArrowUpRight size={10} className="text-emerald-500" /> : <ArrowDownRight size={10} className="text-red-500" />}
-                    </div>
-                 </div>
-                 <div className="space-y-0.5 text-right">
-                    <div className="text-[9px] text-zinc-500 uppercase font-bold">Bank Spread</div>
-                    <div className="text-[10px] font-mono text-zinc-400">{(rate.bankRate).toFixed(4)}</div>
-                 </div>
-                 <div className="bg-blue-500/10 px-2 py-1 rounded">
-                    <div className="text-[9px] text-blue-500 uppercase font-black">Leakage</div>
-                    <div className="text-[10px] font-mono text-white font-bold">{rate.savingsPips} pips</div>
-                 </div>
-               </div>
-             ))
-           )}
         </div>
       </motion.div>
 
