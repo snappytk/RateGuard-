@@ -52,7 +52,7 @@ const getEnv = (key: string) => {
 };
 
 // --- CONFIGURATION ---
-const firebaseConfig = {
+const rawConfig = {
   apiKey: getEnv("FIREBASE_API_KEY"),
   authDomain: getEnv("FIREBASE_AUTH_DOMAIN"),
   projectId: getEnv("FIREBASE_PROJECT_ID"),
@@ -61,17 +61,34 @@ const firebaseConfig = {
   appId: getEnv("FIREBASE_APP_ID")
 };
 
-if (!firebaseConfig.apiKey) console.warn("RateGuard: Firebase API Key is missing.");
+// Validate Config
+const isConfigValid = !!rawConfig.apiKey && !!rawConfig.authDomain;
+
+if (!isConfigValid) {
+  console.warn("RateGuard: Firebase API Keys missing. App running in Safety Mode (No Backend).");
+}
+
+// Initialize with real or dummy config to satisfy SDK imports without crashing
+const firebaseConfig = isConfigValid ? rawConfig : {
+  apiKey: "AIzaSy_DUMMY_KEY_FOR_SAFE_INIT",
+  authDomain: "dummy.firebaseapp.com",
+  projectId: "dummy-project",
+  storageBucket: "dummy.appspot.com",
+  messagingSenderId: "000000000000",
+  appId: "1:000000000000:web:0000000000000000000000"
+};
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const googleProvider = new GoogleAuthProvider();
 
-export { auth, db, googleProvider };
+export { auth, db, googleProvider, isConfigValid };
 
 // --- CORE: SYNC LOGIC ---
 export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile: UserProfile, orgProfile: Organization | null }> => {
+  if (!isConfigValid) return { userProfile: { uid: 'demo', email: 'demo@example.com', displayName: 'Demo User', role: 'admin', credits: 999 }, orgProfile: null };
+
   try {
     const userRef = doc(db, "users", user.uid);
     let userSnap = await getDoc(userRef);
@@ -119,6 +136,7 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
 
 // --- ORG MANAGEMENT ---
 export const createOrganization = async (userId: string, orgData: Partial<Organization>) => {
+  if (!isConfigValid) return "demo-org-id";
   const newOrgData = {
     name: orgData.name || 'New Organization',
     adminId: userId,
@@ -133,6 +151,7 @@ export const createOrganization = async (userId: string, orgData: Partial<Organi
 };
 
 export const joinOrganization = async (userId: string, orgId: string) => {
+  if (!isConfigValid) return { success: true };
   try {
     const orgRef = doc(db, "organizations", orgId);
     const userRef = doc(db, "users", userId);
@@ -153,27 +172,49 @@ export const joinOrganization = async (userId: string, orgId: string) => {
 };
 
 export const markIntroSeen = async (userId: string) => {
+  if (!isConfigValid) return true;
   try { await updateDoc(doc(db, "users", userId), { hasSeenIntro: true }); return true; } catch (e) { return false; }
 };
 
-// --- AUTH ---
-export const handleGoogleSignIn = async () => (await signInWithPopup(auth, googleProvider)).user;
+// --- AUTH WRAPPERS ---
+export const handleGoogleSignIn = async () => {
+  if (!isConfigValid) throw new Error("Missing Firebase Configuration");
+  return (await signInWithPopup(auth, googleProvider)).user;
+};
+
 export const handleEmailSignUp = async (email: string, pass: string, name: string) => {
+  if (!isConfigValid) throw new Error("Missing Firebase Configuration");
   const res = await createUserWithEmailAndPassword(auth, email, pass);
   await updateProfile(res.user, { displayName: name });
   await sendEmailVerification(res.user);
   await firebaseSignOut(auth);
 };
+
 export const handleEmailSignIn = async (email: string, pass: string) => {
+  if (!isConfigValid) throw new Error("Missing Firebase Configuration");
   const res = await signInWithEmailAndPassword(auth, email, pass);
   if (!res.user.emailVerified) { await firebaseSignOut(auth); throw new Error("Email not verified."); }
   return res.user;
 };
-export const signOut = async () => { await firebaseSignOut(auth); };
-export const onAuthStateChanged = (cb: (user: FirebaseUser | null) => void) => onFirebaseAuthStateChanged(auth, cb);
+
+export const signOut = async () => { 
+  if (!isConfigValid) return;
+  await firebaseSignOut(auth); 
+};
+
+export const onAuthStateChanged = (cb: (user: FirebaseUser | null) => void) => {
+  if (!isConfigValid) {
+    // If no config, we don't call the real listener to avoid 'auth/invalid-api-key' errors.
+    // We just return null immediately.
+    cb(null);
+    return () => {};
+  }
+  return onFirebaseAuthStateChanged(auth, cb);
+};
 
 // --- DATA ---
 export const fetchOrgQuotes = async (orgId: string): Promise<QuoteData[]> => {
+  if (!isConfigValid) return [];
   try {
     const q = query(collection(db, "quotes"), where("orgId", "==", orgId), orderBy("createdAt", "desc"));
     const querySnapshot = await getDocs(q);
@@ -190,6 +231,11 @@ export const saveQuoteToFirestore = async (
   pdfBase64: string, 
   geminiRaw: any
 ): Promise<{success: true, id: string, [key: string]: any} | {success: false, error: any}> => {
+  if (!isConfigValid) {
+    // Return mock success in demo mode
+    return { success: true, id: "demo-quote-" + Date.now(), ...quoteData };
+  }
+
   try {
     if (!userId || !orgId) throw new Error("Missing ID.");
 
@@ -242,6 +288,7 @@ export const saveQuoteToFirestore = async (
 
 // --- BILLING ---
 export const processEnterpriseUpgrade = async (userId: string, orgId: string, paypalId: string) => {
+  if (!isConfigValid) return true;
   try {
     await setDoc(doc(db, "transactions", paypalId), {
       userId, orgId, amount: 231.00, status: "COMPLETED", createdAt: serverTimestamp()
@@ -252,14 +299,29 @@ export const processEnterpriseUpgrade = async (userId: string, orgId: string, pa
 };
 
 // --- UTILS ---
-export const updateComplianceProfile = async (userId: string, data: any) => updateDoc(doc(db, "users", userId), data);
+export const updateComplianceProfile = async (userId: string, data: any) => {
+  if (!isConfigValid) return;
+  updateDoc(doc(db, "users", userId), data);
+};
+
 export const fetchUserSettings = async (userId: string) => {
+  if (!isConfigValid) return null;
   const snap = await getDoc(doc(db, "settings", userId));
   return snap.exists() ? snap.data() : null;
 };
-export const updateUserSettings = async (userId: string, settings: any) => updateDoc(doc(db, "settings", userId), settings);
-export const updateUserProfileData = async (userId: string, data: Partial<UserProfile>) => updateDoc(doc(db, "users", userId), data);
+
+export const updateUserSettings = async (userId: string, settings: any) => {
+  if (!isConfigValid) return;
+  updateDoc(doc(db, "settings", userId), settings);
+};
+
+export const updateUserProfileData = async (userId: string, data: Partial<UserProfile>) => {
+  if (!isConfigValid) return;
+  updateDoc(doc(db, "users", userId), data);
+};
+
 export const addTeammateByUID = async (ownerUid: string, colleagueUid: string) => {
+  if (!isConfigValid) return { success: true };
   try {
     if (ownerUid === colleagueUid) throw new Error("Cannot invite self.");
     const ownerSnap = await getDoc(doc(db, "users", ownerUid));
@@ -278,9 +340,14 @@ export const addTeammateByUID = async (ownerUid: string, colleagueUid: string) =
 };
 
 export const listenToOrgAudits = (orgId: string, cb: (audits: Audit[]) => void) => {
-  if (!orgId) return () => {};
+  if (!isConfigValid || !orgId) return () => {};
   const q = query(collection(db, "audits"), where("orgId", "==", orgId), orderBy("timestamp", "desc"));
   return onSnapshot(q, (snap) => cb(snap.docs.map(d => ({id: d.id, ...d.data()} as Audit))));
 };
-export const saveAudit = async (data: any) => addDoc(collection(db, "audits"), { ...data, timestamp: Date.now() });
+
+export const saveAudit = async (data: any) => {
+  if (!isConfigValid) return;
+  addDoc(collection(db, "audits"), { ...data, timestamp: Date.now() });
+};
+
 export const logAnalyticsEvent = (name: string, data: any) => console.log(name, data);
