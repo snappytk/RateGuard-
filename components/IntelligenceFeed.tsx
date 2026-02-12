@@ -76,10 +76,12 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
 
     try {
       const reader = new FileReader();
-      reader.readAsDataURL(file);
+      
+      // CRITICAL: Set onload before reading to prevent race conditions on small files
       reader.onload = async () => {
         try {
-          const base64 = (reader.result as string).split(',')[1];
+          const result = reader.result as string;
+          const base64 = result.split(',')[1];
           const mimeType = file.type || 'image/jpeg';
           
           // 1. AI Extraction
@@ -165,6 +167,10 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
           if (fileInputRef.current) fileInputRef.current.value = '';
         }
       };
+
+      // Trigger read after defining the handler
+      reader.readAsDataURL(file);
+
     } catch (err: any) {
       console.error("Upload Error:", err);
       setErrorMsg("File Read Error");

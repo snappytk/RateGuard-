@@ -87,7 +87,27 @@ export { auth, db, googleProvider, isConfigValid };
 
 // --- CORE: SYNC LOGIC ---
 export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile: UserProfile, orgProfile: Organization | null }> => {
-  if (!isConfigValid) return { userProfile: { uid: 'demo', email: 'demo@example.com', displayName: 'Demo User', role: 'admin', credits: 999 }, orgProfile: null };
+  if (!isConfigValid) {
+     return { 
+        userProfile: { 
+            uid: 'demo', 
+            email: 'demo@example.com', 
+            displayName: 'Demo User', 
+            role: 'admin', 
+            credits: 999,
+            orgId: 'demo-org'
+        }, 
+        orgProfile: {
+            id: 'demo-org',
+            name: 'Demo Corp',
+            adminId: 'demo',
+            members: ['demo'],
+            plan: 'enterprise',
+            maxSeats: 10,
+            createdAt: Date.now()
+        } 
+    };
+  }
 
   try {
     const userRef = doc(db, "users", user.uid);
@@ -204,9 +224,8 @@ export const signOut = async () => {
 
 export const onAuthStateChanged = (cb: (user: FirebaseUser | null) => void) => {
   if (!isConfigValid) {
-    // If no config, we don't call the real listener to avoid 'auth/invalid-api-key' errors.
-    // We just return null immediately.
-    cb(null);
+    // Return mock user immediately in demo mode
+    cb({ uid: 'demo', email: 'demo@example.com', displayName: 'Demo User', emailVerified: true, providerData: [] } as any);
     return () => {};
   }
   return onFirebaseAuthStateChanged(auth, cb);
