@@ -1,8 +1,8 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mail, Lock, Loader2, X, ShieldCheck, LogIn, AlertCircle, Chrome, UserPlus, ArrowRight, CheckCircle2 } from 'lucide-react';
-import { handleGoogleSignIn, handleEmailSignUp, handleEmailSignIn } from '../services/firebase';
+import { Mail, Lock, Loader2, X, ShieldCheck, LogIn, AlertCircle, Chrome, UserPlus, ArrowRight, CheckCircle2, Zap } from 'lucide-react';
+import { handleGoogleSignIn, handleEmailSignUp, handleEmailSignIn, sendMagicLink } from '../services/firebase';
 
 interface AuthProps {
   onClose: () => void;
@@ -11,12 +11,13 @@ interface AuthProps {
 
 const Auth: React.FC<AuthProps> = ({ onClose, onSuccess }) => {
   const [method, setMethod] = useState<'google' | 'email'>('email');
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [mode, setMode] = useState<'signin' | 'signup' | 'magiclink'>('signin');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // Verification State
+  // Verification/Magic Link Sent State
   const [verificationSent, setVerificationSent] = useState(false);
+  const [magicLinkSent, setMagicLinkSent] = useState(false);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -43,7 +44,11 @@ const Auth: React.FC<AuthProps> = ({ onClose, onSuccess }) => {
     setLoading(true);
     setError(null);
     try {
-      if (mode === 'signup') {
+      if (mode === 'magiclink') {
+        if (!formData.email) throw new Error("Email is required");
+        await sendMagicLink(formData.email);
+        setMagicLinkSent(true);
+      } else if (mode === 'signup') {
         if (!formData.name) throw new Error("Name is required");
         await handleEmailSignUp(formData.email, formData.password, formData.name);
         setVerificationSent(true);
@@ -53,13 +58,12 @@ const Auth: React.FC<AuthProps> = ({ onClose, onSuccess }) => {
       }
     } catch (err: any) {
       setError(err.message || "Authentication failed");
-      // If error is verification related, maybe stay on signin
     } finally {
       setLoading(false);
     }
   };
 
-  if (verificationSent) {
+  if (verificationSent || magicLinkSent) {
     return (
       <motion.div 
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -67,17 +71,19 @@ const Auth: React.FC<AuthProps> = ({ onClose, onSuccess }) => {
       >
         <div className="w-full max-w-md bg-[#0e121b] border border-zinc-800 p-10 rounded-[2.5rem] text-center space-y-6">
            <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center text-blue-500 mx-auto border border-blue-500/20">
-              <Mail size={32} />
+              {magicLinkSent ? <Zap size={32} /> : <Mail size={32} />}
            </div>
            <div>
-             <h2 className="text-2xl font-black text-white uppercase">Verify Your Email</h2>
+             <h2 className="text-2xl font-black text-white uppercase">{magicLinkSent ? 'Check Your Inbox' : 'Verify Your Email'}</h2>
              <p className="text-zinc-500 mt-2 text-sm leading-relaxed">
-               We've sent a verification link to <span className="text-white font-bold">{formData.email}</span>. 
-               Please click the link to activate your node, then sign in.
+               {magicLinkSent 
+                 ? <span>We've sent a secure login link to <span className="text-white font-bold">{formData.email}</span>. Click it to access your terminal instantly.</span>
+                 : <span>We've sent a verification link to <span className="text-white font-bold">{formData.email}</span>. Please click the link to activate your node.</span>
+               }
              </p>
            </div>
            <button 
-             onClick={() => { setVerificationSent(false); setMode('signin'); }}
+             onClick={() => { setVerificationSent(false); setMagicLinkSent(false); setMode('signin'); }}
              className="w-full py-4 bg-zinc-800 hover:bg-zinc-700 text-white font-black uppercase text-xs tracking-widest rounded-2xl transition-all"
            >
              Back to Sign In
@@ -114,23 +120,29 @@ const Auth: React.FC<AuthProps> = ({ onClose, onSuccess }) => {
               <ShieldCheck className="text-white" size={20} />
             </div>
             <h2 className="text-2xl font-black text-white tracking-tighter uppercase">
-              {mode === 'signin' ? 'Terminal Access' : 'Initialize Node'}
+              {mode === 'signup' ? 'Initialize Node' : 'Terminal Access'}
             </h2>
           </div>
 
           {/* Mode Switcher */}
-          <div className="grid grid-cols-2 gap-2 bg-zinc-900/50 p-1 rounded-xl">
+          <div className="grid grid-cols-3 gap-1 bg-zinc-900/50 p-1 rounded-xl">
              <button 
                onClick={() => setMode('signin')}
-               className={`py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${mode === 'signin' ? 'bg-zinc-800 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}
+               className={`py-2 text-[8px] sm:text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${mode === 'signin' ? 'bg-zinc-800 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}
              >
-               Sign In
+               Password
+             </button>
+             <button 
+               onClick={() => setMode('magiclink')}
+               className={`py-2 text-[8px] sm:text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${mode === 'magiclink' ? 'bg-zinc-800 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}
+             >
+               Magic Link
              </button>
              <button 
                onClick={() => setMode('signup')}
-               className={`py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${mode === 'signup' ? 'bg-zinc-800 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}
+               className={`py-2 text-[8px] sm:text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${mode === 'signup' ? 'bg-zinc-800 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}
              >
-               Create Account
+               Sign Up
              </button>
           </div>
 
@@ -165,44 +177,50 @@ const Auth: React.FC<AuthProps> = ({ onClose, onSuccess }) => {
                 </div>
              </div>
 
-             <div className="space-y-1">
-                <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Password</label>
-                <div className="relative">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
-                  <input 
-                    type="password" 
-                    placeholder="••••••••"
-                    value={formData.password}
-                    onChange={e => setFormData({...formData, password: e.target.value})}
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl py-3.5 pl-12 pr-4 text-sm text-white outline-none focus:border-blue-500/50 transition-all placeholder:text-zinc-700"
-                  />
-                </div>
-             </div>
+             {mode !== 'magiclink' && (
+               <div className="space-y-1">
+                  <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Password</label>
+                  <div className="relative">
+                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
+                    <input 
+                      type="password" 
+                      placeholder="••••••••"
+                      value={formData.password}
+                      onChange={e => setFormData({...formData, password: e.target.value})}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl py-3.5 pl-12 pr-4 text-sm text-white outline-none focus:border-blue-500/50 transition-all placeholder:text-zinc-700"
+                    />
+                  </div>
+               </div>
+             )}
 
              <button 
                 type="submit"
                 disabled={loading}
                 className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-xl shadow-blue-500/10 active:scale-[0.98] flex items-center justify-center gap-2 mt-2"
               >
-                {loading ? <Loader2 className="animate-spin" size={16} /> : (mode === 'signin' ? <LogIn size={16} /> : <ArrowRight size={16} />)}
-                {mode === 'signin' ? 'Authenticate' : 'Initialize Account'}
+                {loading ? <Loader2 className="animate-spin" size={16} /> : (mode === 'signin' ? <LogIn size={16} /> : (mode === 'magiclink' ? <Zap size={16} /> : <ArrowRight size={16} />))}
+                {mode === 'signin' ? 'Authenticate' : (mode === 'magiclink' ? 'Send Login Link' : 'Initialize Account')}
               </button>
           </form>
 
-          <div className="flex items-center gap-4">
-            <div className="h-px bg-zinc-800 flex-1" />
-            <span className="text-[9px] font-black text-zinc-600 uppercase">Or Continue With</span>
-            <div className="h-px bg-zinc-800 flex-1" />
-          </div>
+          {mode !== 'magiclink' && (
+            <>
+              <div className="flex items-center gap-4">
+                <div className="h-px bg-zinc-800 flex-1" />
+                <span className="text-[9px] font-black text-zinc-600 uppercase">Or Continue With</span>
+                <div className="h-px bg-zinc-800 flex-1" />
+              </div>
 
-          <button 
-            onClick={onGoogleClick}
-            disabled={loading}
-            className="w-full py-3 bg-white text-[#0e121b] font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg hover:bg-zinc-200 active:scale-[0.98] flex items-center justify-center gap-3 disabled:opacity-50"
-          >
-            <Chrome size={18} />
-            Google Workspace
-          </button>
+              <button 
+                onClick={onGoogleClick}
+                disabled={loading}
+                className="w-full py-3 bg-white text-[#0e121b] font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg hover:bg-zinc-200 active:scale-[0.98] flex items-center justify-center gap-3 disabled:opacity-50"
+              >
+                <Chrome size={18} />
+                Google Workspace
+              </button>
+            </>
+          )}
             
           <AnimatePresence>
               {error && (

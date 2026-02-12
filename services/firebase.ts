@@ -8,6 +8,9 @@ import {
   sendEmailVerification,
   updateProfile,
   onAuthStateChanged as onFirebaseAuthStateChanged,
+  sendSignInLinkToEmail,
+  isSignInWithEmailLink,
+  signInWithEmailLink,
   User as FirebaseUser,
   signOut as firebaseSignOut
 } from "firebase/auth";
@@ -215,6 +218,48 @@ export const handleEmailSignIn = async (email: string, pass: string) => {
   const res = await signInWithEmailAndPassword(auth, email, pass);
   if (!res.user.emailVerified) { await firebaseSignOut(auth); throw new Error("Email not verified."); }
   return res.user;
+};
+
+// --- MAGIC LINK AUTH ---
+export const sendMagicLink = async (email: string) => {
+  if (!isConfigValid) throw new Error("Missing Firebase Configuration");
+  
+  const actionCodeSettings = {
+    // Redirect back to the current URL (usually the landing page or app root)
+    url: window.location.href, 
+    handleCodeInApp: true,
+  };
+
+  await sendSignInLinkToEmail(auth, email, actionCodeSettings);
+  window.localStorage.setItem('emailForSignIn', email);
+};
+
+export const finishMagicLinkSignIn = async (currentUrl: string, email?: string | null) => {
+  if (!isConfigValid) return { success: false, error: 'Config missing' };
+  
+  if (isSignInWithEmailLink(auth, currentUrl)) {
+    let emailToUse = email;
+    
+    // Attempt to get from local storage if not provided
+    if (!emailToUse) {
+      emailToUse = window.localStorage.getItem('emailForSignIn');
+    }
+
+    // If still no email (user opened link on different device), return specific status
+    if (!emailToUse) {
+      return { success: false, needsEmail: true };
+    }
+
+    try {
+      const result = await signInWithEmailLink(auth, emailToUse, currentUrl);
+      window.localStorage.removeItem('emailForSignIn');
+      return { success: true, user: result.user };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+  
+  return { success: false, notLink: true };
 };
 
 export const signOut = async () => { 
