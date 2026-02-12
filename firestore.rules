@@ -1,3 +1,4 @@
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -12,11 +13,9 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
     
-    // Quotes: Basic Auth + Org Match
+    // Quotes: Allow full read/write for authenticated users to enable the ingestion flow
     match /quotes/{quoteId} {
-      allow read: if request.auth != null; // Simplified for robustness, filter in query
-      allow create: if request.auth != null; // Size limit handled in client logic (nulling base64)
-      allow update: if request.auth != null;
+      allow read, write: if request.auth != null;
     }
     
     // Rates
@@ -26,18 +25,17 @@ service cloud.firestore {
 
     // Audits
     match /audits/{auditId} {
-      allow read, create: if request.auth != null;
+      allow read, write: if request.auth != null;
     }
     
     // Organizations
     match /organizations/{orgId} {
        allow read, write: if request.auth != null;
-       allow create: if request.auth != null;
     }
 
     // Transactions
     match /transactions/{txnId} {
-      allow read, create: if request.auth != null;
+      allow read, write: if request.auth != null;
     }
   }
 }
