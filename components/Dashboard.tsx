@@ -24,7 +24,7 @@ import CookiePolicy from './CookiePolicy';
 import PaymentPage from './PaymentPage';
 import WelcomeTour from './WelcomeTour';
 import { AppView, QuoteData, UserProfile, Organization } from '../types';
-import { fetchOrgQuotes, markIntroSeen } from '../services/firebase';
+import { markIntroSeen, listenToOrgQuotes } from '../services/firebase';
 
 interface DashboardProps {
   currentView: AppView;
@@ -46,33 +46,25 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
   // Enterprise Helper
   const isEnterprise = orgProfile?.plan === 'enterprise';
 
-  // Defensive Data Loading
+  // Defensive Data Loading with Real-Time Listener
   useEffect(() => {
-    const loadData = async () => {
-      // Gate: Don't fetch if crucial IDs are missing
-      if (!userProfile?.uid || !userProfile?.orgId) return;
+    // Gate: Don't subscribe if crucial IDs are missing
+    if (!userProfile?.uid || !userProfile?.orgId) return;
 
-      // Check for Intro Tour
-      if (userProfile.hasSeenIntro === false) {
-        setShowTour(true);
-      }
-
-      setIsLoadingData(true);
-      try {
-        const orgQuotes = await fetchOrgQuotes(userProfile.orgId);
-        if (orgQuotes && Array.isArray(orgQuotes)) {
-          setQuotes(orgQuotes);
-        }
-      } catch (error) {
-        console.error("Dashboard Load Error:", error);
-      } finally {
-        setIsLoadingData(false);
-      }
-    };
-    
-    if (userProfile && orgProfile) {
-        loadData();
+    // Check for Intro Tour
+    if (userProfile.hasSeenIntro === false) {
+      setShowTour(true);
     }
+
+    setIsLoadingData(true);
+    
+    // Subscribe to quotes for real-time updates
+    const unsubscribeQuotes = listenToOrgQuotes(userProfile.orgId, (newQuotes) => {
+        setQuotes(newQuotes);
+        setIsLoadingData(false);
+    });
+
+    return () => unsubscribeQuotes();
   }, [userProfile?.uid, userProfile?.orgId]);
 
   const handleTourClose = async () => {
@@ -103,12 +95,17 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
     );
   }
 
+  // With real-time listeners, we don't need manual state updates for adds/edits
   const addQuote = (newQuote: QuoteData) => {
-    setQuotes(prev => [newQuote, ...prev]);
+    // Optimistic update handled by onSnapshot listener automatically in most cases.
+    // We leave this empty or minimal to avoid race conditions with the listener.
+    // The IntelligenceFeed might still use the passed data for immediate feedback if needed, 
+    // but the main list source is the listener.
   };
 
   const updateQuote = (updated: QuoteData) => {
-    setQuotes(prev => prev.map(q => q.id === updated.id ? updated : q));
+    // Handled by listener if database is updated, but can keep for local optimistic updates if we write back to DB
+    // Ideally, we write to DB and let listener propagate.
   };
 
   const handleNavigate = (view: AppView) => {

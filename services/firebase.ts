@@ -147,8 +147,8 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
        if (orgSnap.exists()) {
          const orgData = orgSnap.data() as Organization;
          
-         // CRITICAL: Fetch Admin's credits to populate the orgProfile for the frontend
-         // This ensures members see the Admin's credit balance
+         // CRITICAL: Credits are managed on the ADMIN'S user profile.
+         // We must fetch the admin's profile to display the shared credit balance to all members.
          let effectiveCredits = 0;
          if (orgData.adminId) {
             const adminSnap = await getDoc(doc(db, "users", orgData.adminId));
@@ -162,7 +162,7 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
            orgProfile: { 
                id: orgSnap.id, 
                ...orgData,
-               credits: effectiveCredits // Inject Admin's credits here
+               credits: effectiveCredits // Inject Admin's credits into Org Profile
            }
          };
        } else {
@@ -181,13 +181,12 @@ export const listenToOrg = (orgId: string, cb: (org: Organization) => void) => {
     if (!isConfigValid || !orgId) return () => {};
     return onSnapshot(doc(db, "organizations", orgId), (docSnap) => {
         if (docSnap.exists()) {
-            // Note: This only gives org metadata. Credits are handled via listenToUser on the Admin ID.
             cb({ id: docSnap.id, ...docSnap.data() } as Organization);
         }
     });
 };
 
-// NEW: Listen to a specific user (Admin) to sync credits to the team
+// Listen to the Admin's User Profile for Credit Updates
 export const listenToUser = (userId: string, cb: (user: UserProfile) => void) => {
     if (!isConfigValid || !userId) return () => {};
     return onSnapshot(doc(db, "users", userId), (docSnap) => {
@@ -195,6 +194,16 @@ export const listenToUser = (userId: string, cb: (user: UserProfile) => void) =>
             cb({ uid: docSnap.id, ...docSnap.data() } as UserProfile);
         }
     });
+};
+
+// --- REAL-TIME QUOTES ---
+export const listenToOrgQuotes = (orgId: string, cb: (quotes: QuoteData[]) => void) => {
+  if (!isConfigValid || !orgId) return () => {};
+  const q = query(collection(db, "quotes"), where("orgId", "==", orgId), orderBy("createdAt", "desc"));
+  return onSnapshot(q, (snapshot) => {
+    const quotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuoteData));
+    cb(quotes);
+  });
 };
 
 // --- ORG MANAGEMENT ---
@@ -206,12 +215,11 @@ export const createOrganization = async (userId: string, orgData: Partial<Organi
     members: [userId],
     plan: 'free',
     maxSeats: 5,
-    // Credits are NOT stored on Org anymore, they live on the Admin User
     createdAt: Date.now()
   };
   const orgRef = await addDoc(collection(db, "organizations"), newOrgData);
   
-  // Set User as Admin and give initial credits (10)
+  // Set User as Admin and give initial credits (10) on THEIR profile
   await updateDoc(doc(db, "users", userId), { 
       orgId: orgRef.id, 
       role: 'admin',
@@ -236,7 +244,6 @@ export const joinOrganization = async (userId: string, orgId: string) => {
       if (orgData.members.includes(userId)) return;
       
       transaction.update(orgRef, { members: arrayUnion(userId) });
-      // Members don't get own credits, they use Admin's
       transaction.update(userRef, { orgId: orgId, role: 'member' }); 
     });
     return { success: true };
@@ -259,7 +266,7 @@ export const fetchTeamMembers = async (orgId: string): Promise<TeamMember[]> => 
                 id: d.id,
                 name: data.displayName || 'Unknown Agent',
                 role: data.role || 'member',
-                status: 'Online', // Inference
+                status: 'Online',
                 activity: `Last active ${new Date(data.lastSeen || Date.now()).toLocaleDateString()}`,
                 email: data.email
             } as TeamMember;
@@ -296,7 +303,6 @@ export const sendMagicLink = async (email: string) => {
   if (!isConfigValid) throw new Error("Missing Firebase Configuration");
   
   const actionCodeSettings = {
-    // Redirect back to the current URL (usually the landing page or app root)
     url: window.location.href, 
     handleCodeInApp: true,
   };
@@ -306,22 +312,16 @@ export const sendMagicLink = async (email: string) => {
 };
 
 export const finishMagicLinkSignIn = async (currentUrl: string, email?: string | null) => {
-  // If config is missing (Safety Mode), just return "notLink" so the app continues to standard auth check
   if (!isConfigValid) return { success: false, notLink: true };
   
   if (isSignInWithEmailLink(auth, currentUrl)) {
     let emailToUse = email;
-    
-    // Attempt to get from local storage if not provided
     if (!emailToUse) {
       emailToUse = window.localStorage.getItem('emailForSignIn');
     }
-
-    // If still no email (user opened link on different device), return specific status
     if (!emailToUse) {
       return { success: false, needsEmail: true };
     }
-
     try {
       const result = await signInWithEmailLink(auth, emailToUse, currentUrl);
       window.localStorage.removeItem('emailForSignIn');
@@ -330,7 +330,6 @@ export const finishMagicLinkSignIn = async (currentUrl: string, email?: string |
       return { success: false, error: error.message };
     }
   }
-  
   return { success: false, notLink: true };
 };
 
@@ -341,7 +340,6 @@ export const signOut = async () => {
 
 export const onAuthStateChanged = (cb: (user: FirebaseUser | null) => void) => {
   if (!isConfigValid) {
-    // Return mock user immediately in demo mode
     cb({ uid: 'demo', email: 'demo@example.com', displayName: 'Demo User', emailVerified: true, providerData: [] } as any);
     return () => {};
   }
@@ -368,14 +366,12 @@ export const saveQuoteToFirestore = async (
   geminiRaw: any
 ): Promise<{success: true, id: string, [key: string]: any} | {success: false, error: any}> => {
   if (!isConfigValid) {
-    // Return mock success in demo mode
     return { success: true, id: "demo-quote-" + Date.now(), ...quoteData };
   }
 
   try {
     if (!userId || !orgId) throw new Error("Missing ID.");
 
-    // SAFETY CHECK: Firestore limit is 1MB. If file is close to limit, do NOT save base64.
     let safePdfBase64: string | null = pdfBase64;
     const sizeInBytes = (pdfBase64.length * 3) / 4; 
     if (sizeInBytes > 900000) { 
@@ -399,9 +395,10 @@ export const saveQuoteToFirestore = async (
     // Remove undefined
     const sanitizedQuote = JSON.parse(JSON.stringify(newQuote));
 
+    // 1. Save Quote
     const docRef = await addDoc(collection(db, "quotes"), sanitizedQuote);
     
-    // Create Audit Record
+    // 2. Save Audit Record
     await addDoc(collection(db, "audits"), {
         quoteId: docRef.id,
         orgId,
@@ -413,7 +410,7 @@ export const saveQuoteToFirestore = async (
         bank: quoteData.bank
     });
 
-    // UPDATED: Deduct credit from ADMIN USER (Source of Truth), not Organization
+    // 3. Deduct Credits from ADMIN USER Profile
     try {
         const orgSnap = await getDoc(doc(db, "organizations", orgId));
         const adminId = orgSnap.data()?.adminId;
