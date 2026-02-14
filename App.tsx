@@ -49,8 +49,13 @@ const App: React.FC = () => {
          alert("Invalid or expired login link.");
        }
        
-       // Clean URL
-       window.history.replaceState({}, document.title, window.location.pathname);
+       // Clean URL - Wrapped in try/catch to handle sandboxed/blob URL constraints
+       try {
+         window.history.replaceState({}, document.title, window.location.pathname);
+       } catch (e) {
+         console.warn("Could not clean URL history (likely sandboxed env):", e);
+       }
+       
        setFinishingLink(false);
     };
 

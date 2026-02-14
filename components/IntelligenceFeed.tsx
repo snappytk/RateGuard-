@@ -50,17 +50,20 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
     const file = event.target.files?.[0];
     if (!file) return;
 
+    // Reset UI State
     setErrorMsg(null);
     setStatusText("Encrypting Stream...");
     
     if (file.size > 5000000) { 
       setErrorMsg("File Size Exceeded. Must be under 5MB.");
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
     const hasCredits = userProfile && userProfile.credits > 0;
     if (!userProfile || (!hasCredits && !isEnterprise)) {
       setErrorMsg("Insufficient Credits. Please upgrade to Enterprise.");
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
     
@@ -69,111 +72,128 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
 
     if (!currentUid || !currentOrgId) {
         setErrorMsg("Session Error. Please reload.");
+        if (fileInputRef.current) fileInputRef.current.value = '';
         return;
     }
 
     setIsUploading(true);
 
-    try {
-      const reader = new FileReader();
-      
-      // CRITICAL: Set onload before reading to prevent race conditions on small files
-      reader.onload = async () => {
-        try {
-          const result = reader.result as string;
-          const base64 = result.split(',')[1];
-          const mimeType = file.type || 'image/jpeg';
-          
-          // 1. AI Extraction
-          setStatusText("Atlas AI: Extraction & Normalization...");
-          const extractionResult = await extractQuoteData(base64, mimeType);
+    const reader = new FileReader();
 
-          // 2. Fetch Market Data for Mid-Market Rate
-          setStatusText("RateGuard: Fetching Live Mid-Market...");
-          const txDetails = extractionResult.transaction || {};
-          const audit = await analyzeQuoteRealtime(
-            txDetails.currency_pair || "USD/EUR",
-            txDetails.exchange_rate_bank || 1.0,
-            txDetails.original_amount || 10000,
-            txDetails.value_date
-          );
+    reader.onload = async (e) => {
+      try {
+        if (!e.target?.result) throw new Error("File read failed (empty result)");
+        
+        const result = e.target.result as string;
+        // Robust base64 extraction
+        const base64 = result.includes(',') ? result.split(',')[1] : result;
+        const mimeType = file.type || 'image/jpeg';
+        
+        // 1. AI Extraction
+        setStatusText("Atlas AI: Extraction & Normalization...");
+        const extractionResult = await extractQuoteData(base64, mimeType);
 
-          // 3. Detailed Calculation Engine
-          setStatusText("Profit Guard: Running Financial Models...");
-          const calculationResult = calculateAllCosts(
-            { ...txDetails, fees: extractionResult.fees },
-            audit.midMarketRate
-          );
-
-          // 4. Merge Data
-          const finalQuoteData: Partial<QuoteData> = {
-            bank: extractionResult.extraction?.bank_name || "Unknown Bank",
-            pair: txDetails.currency_pair || "USD/EUR",
-            amount: txDetails.original_amount || 0,
-            exchangeRate: txDetails.exchange_rate_bank || 0,
-            midMarketRate: audit.midMarketRate,
-            valueDate: txDetails.value_date,
-            
-            // Rich Calculation Data
-            fees: calculationResult.fees,
-            wireFee: calculationResult.wireFee,
-            fxFee: calculationResult.fxFee,
-            correspondentFee: calculationResult.correspondentFee,
-            otherFees: calculationResult.otherFees,
-            totalFees: calculationResult.totalFees,
-            
-            spreadDecimal: calculationResult.spreadDecimal,
-            spreadPercentage: calculationResult.spreadPercentage,
-            markupCost: calculationResult.markupCost,
-            
-            totalHiddenCost: calculationResult.totalHiddenCost,
-            totalHiddenPercentage: calculationResult.totalHiddenPercentage,
-            costBreakdown: calculationResult.costBreakdown,
-            
-            annualTransactionCount: calculationResult.annualTransactionCount,
-            annualizedHiddenCost: calculationResult.annualizedHiddenCost,
-            monthlyAverageCost: calculationResult.monthlyAverageCost,
-            
-            industryAverageSpread: calculationResult.industryAverageSpread,
-            industryAverageTotalCost: calculationResult.industryAverageTotalCost,
-            yourCostVsIndustry: calculationResult.yourCostVsIndustry,
-            betterThanIndustry: calculationResult.betterThanIndustry,
-            percentileRank: calculationResult.percentileRank,
-            potentialSavingsPercent: calculationResult.potentialSavingsPercent,
-            
-            dispute: calculationResult.dispute,
-            reliabilityScore: 85,
-            geminiRaw: extractionResult
-          };
-
-          // 5. Save to Firestore
-          setStatusText("Finalizing Audit Record...");
-          const saveResult = await saveQuoteToFirestore(currentUid, currentOrgId, finalQuoteData, base64, extractionResult);
-
-          if (saveResult.success) {
-            onAddQuote(saveResult as unknown as QuoteData);
-            if (!isEnterprise && onProfileUpdate && userProfile) {
-                onProfileUpdate({ credits: userProfile.credits - 1 });
-            }
-          } else {
-            throw new Error(saveResult.error || "Database Write Failed");
-          }
-
-        } catch (err: any) {
-          console.error("Pipeline Error:", err);
-          setErrorMsg(err.message || "Analysis Failed");
-        } finally {
-          setIsUploading(false);
-          if (fileInputRef.current) fileInputRef.current.value = '';
+        if (!extractionResult) {
+           throw new Error("AI Extraction returned null");
         }
-      };
 
-      // Trigger read after defining the handler
+        // 2. Fetch Market Data for Mid-Market Rate
+        setStatusText("RateGuard: Fetching Live Mid-Market...");
+        const txDetails = extractionResult.transaction || {};
+        const audit = await analyzeQuoteRealtime(
+          txDetails.currency_pair || "USD/EUR",
+          txDetails.exchange_rate_bank || 1.0,
+          txDetails.original_amount || 10000,
+          txDetails.value_date
+        );
+
+        // 3. Detailed Calculation Engine
+        setStatusText("Profit Guard: Running Financial Models...");
+        const calculationResult = calculateAllCosts(
+          { ...txDetails, fees: extractionResult.fees },
+          audit.midMarketRate
+        );
+
+        // 4. Merge Data
+        const finalQuoteData: Partial<QuoteData> = {
+          bank: extractionResult.extraction?.bank_name || "Unknown Bank",
+          pair: txDetails.currency_pair || "USD/EUR",
+          amount: txDetails.original_amount || 0,
+          exchangeRate: txDetails.exchange_rate_bank || 0,
+          midMarketRate: audit.midMarketRate,
+          valueDate: txDetails.value_date,
+          
+          // Rich Calculation Data
+          fees: calculationResult.fees,
+          wireFee: calculationResult.wireFee,
+          fxFee: calculationResult.fxFee,
+          correspondentFee: calculationResult.correspondentFee,
+          otherFees: calculationResult.otherFees,
+          totalFees: calculationResult.totalFees,
+          
+          spreadDecimal: calculationResult.spreadDecimal,
+          spreadPercentage: calculationResult.spreadPercentage,
+          markupCost: calculationResult.markupCost,
+          
+          totalHiddenCost: calculationResult.totalHiddenCost,
+          totalHiddenPercentage: calculationResult.totalHiddenPercentage,
+          costBreakdown: calculationResult.costBreakdown,
+          
+          annualTransactionCount: calculationResult.annualTransactionCount,
+          annualizedHiddenCost: calculationResult.annualizedHiddenCost,
+          monthlyAverageCost: calculationResult.monthlyAverageCost,
+          
+          industryAverageSpread: calculationResult.industryAverageSpread,
+          industryAverageTotalCost: calculationResult.industryAverageTotalCost,
+          yourCostVsIndustry: calculationResult.yourCostVsIndustry,
+          betterThanIndustry: calculationResult.betterThanIndustry,
+          percentileRank: calculationResult.percentileRank,
+          potentialSavingsPercent: calculationResult.potentialSavingsPercent,
+          
+          dispute: calculationResult.dispute,
+          reliabilityScore: 85,
+          geminiRaw: extractionResult
+        };
+
+        // 5. Save to Firestore
+        setStatusText("Finalizing Audit Record...");
+        const saveResult = await saveQuoteToFirestore(currentUid, currentOrgId, finalQuoteData, base64, extractionResult);
+
+        if (saveResult.success) {
+          onAddQuote(saveResult as unknown as QuoteData);
+          if (!isEnterprise && onProfileUpdate && userProfile) {
+              onProfileUpdate({ credits: Math.max(0, userProfile.credits - 1) });
+          }
+        } else {
+          throw new Error(saveResult.error || "Database Write Failed");
+        }
+
+      } catch (err: any) {
+        console.error("Pipeline Error:", err);
+        // Handle AbortError specifically to not show a scary message if it's just a cancellation
+        if (err.name === 'AbortError') {
+            setErrorMsg("Upload cancelled.");
+        } else {
+            setErrorMsg(err.message || "Analysis Failed");
+        }
+      } finally {
+        setIsUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+
+    reader.onerror = () => {
+      console.error("FileReader Error:", reader.error);
+      setErrorMsg("Failed to read file.");
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    try {
       reader.readAsDataURL(file);
-
-    } catch (err: any) {
-      console.error("Upload Error:", err);
-      setErrorMsg("File Read Error");
+    } catch (e: any) {
+      console.error("FileReader Start Error:", e);
+      setErrorMsg("Could not start upload.");
       setIsUploading(false);
     }
   };

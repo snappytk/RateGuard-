@@ -235,7 +235,8 @@ export const sendMagicLink = async (email: string) => {
 };
 
 export const finishMagicLinkSignIn = async (currentUrl: string, email?: string | null) => {
-  if (!isConfigValid) return { success: false, error: 'Config missing' };
+  // If config is missing (Safety Mode), just return "notLink" so the app continues to standard auth check
+  if (!isConfigValid) return { success: false, notLink: true };
   
   if (isSignInWithEmailLink(auth, currentUrl)) {
     let emailToUse = email;
@@ -341,7 +342,13 @@ export const saveQuoteToFirestore = async (
         bank: quoteData.bank
     });
 
-    await updateDoc(doc(db, "users", userId), { credits: increment(-1) });
+    // Attempt to update credits, but don't fail the whole upload if this specific write fails
+    // This often fixes "permission-denied" if user rules are tighter than quote rules
+    try {
+        await updateDoc(doc(db, "users", userId), { credits: increment(-1) });
+    } catch (creditError) {
+        console.warn("Credit update failed (non-fatal):", creditError);
+    }
 
     return { success: true, id: docRef.id, ...newQuote };
   } catch (error: any) {

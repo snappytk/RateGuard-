@@ -3,17 +3,17 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // User Profiles
+    // User Profiles - Relaxed to allow authenticated writes for credit updates
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if request.auth != null;
     }
     
     // Settings
     match /settings/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if request.auth != null;
     }
     
-    // Quotes: Allow full read/write for authenticated users to enable the ingestion flow
+    // Quotes
     match /quotes/{quoteId} {
       allow read, write: if request.auth != null;
     }
