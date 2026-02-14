@@ -6,7 +6,7 @@ import Auth from './components/Auth';
 import Onboarding from './components/Onboarding';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AppView, UserProfile, Organization } from './types';
-import { auth, onAuthStateChanged, syncUserAndOrg, signOut, finishMagicLinkSignIn, listenToOrg } from './services/firebase';
+import { auth, onAuthStateChanged, syncUserAndOrg, signOut, finishMagicLinkSignIn, listenToOrg, listenToUser } from './services/firebase';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 
@@ -109,15 +109,33 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  // 3. Org Listener for Credit Sync
+  // 3. Org Listener: Syncs Organization Metadata (Name, Plan)
   useEffect(() => {
      if (userProfile?.orgId) {
          const unsubOrg = listenToOrg(userProfile.orgId, (updatedOrg) => {
-             setOrgProfile(updatedOrg);
+             // We only want to update metadata, keeping the credits derived from the admin sync
+             setOrgProfile(prev => prev ? ({ 
+                 ...prev, 
+                 name: updatedOrg.name, 
+                 plan: updatedOrg.plan, 
+                 maxSeats: updatedOrg.maxSeats 
+             }) : null);
          });
          return () => unsubOrg();
      }
   }, [userProfile?.orgId]);
+
+  // 4. Admin Listener: Syncs Credits from the Organization's Admin User
+  useEffect(() => {
+      // Logic: Everyone in the org shares the Admin's credits.
+      if (orgProfile?.adminId) {
+          const unsubAdmin = listenToUser(orgProfile.adminId, (adminUser) => {
+              // Update the orgProfile state with the Admin's current credits
+              setOrgProfile(prev => prev ? ({ ...prev, credits: adminUser.credits || 0 }) : null);
+          });
+          return () => unsubAdmin();
+      }
+  }, [orgProfile?.adminId]);
 
   const handleLogout = async () => {
     await signOut();
@@ -175,7 +193,7 @@ const App: React.FC = () => {
             onViewChange={setView} 
             onLogout={handleLogout}
             userProfile={userProfile}
-            orgProfile={orgProfile} // Pass Org Data
+            orgProfile={orgProfile} // Pass Org Data (credits injected from Admin)
             onProfileUpdate={handleProfileUpdate}
           />
         )}

@@ -1,3 +1,4 @@
+
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { 
   getAuth, 
@@ -122,7 +123,7 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
         email: user.email,
         displayName: user.displayName || 'Agent',
         role: 'member',
-        credits: 5, // Legacy field
+        credits: 5, 
         hasSeenIntro: false,
         createdAt: Date.now(),
         lastSeen: Date.now(),
@@ -136,7 +137,6 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
       await setDoc(doc(db, "settings", user.uid), { profitThreshold: 2.0, autoAudit: true });
       userSnap = await getDoc(userRef);
     } else {
-        // Update last seen
         await updateDoc(userRef, { lastSeen: Date.now() });
     }
 
@@ -145,9 +145,25 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
     if (userData.orgId) {
        const orgSnap = await getDoc(doc(db, "organizations", userData.orgId));
        if (orgSnap.exists()) {
+         const orgData = orgSnap.data() as Organization;
+         
+         // CRITICAL: Fetch Admin's credits to populate the orgProfile for the frontend
+         // This ensures members see the Admin's credit balance
+         let effectiveCredits = 0;
+         if (orgData.adminId) {
+            const adminSnap = await getDoc(doc(db, "users", orgData.adminId));
+            if (adminSnap.exists()) {
+                effectiveCredits = adminSnap.data().credits || 0;
+            }
+         }
+
          return {
            userProfile: userData,
-           orgProfile: { id: orgSnap.id, ...orgSnap.data() } as Organization
+           orgProfile: { 
+               id: orgSnap.id, 
+               ...orgData,
+               credits: effectiveCredits // Inject Admin's credits here
+           }
          };
        } else {
          await updateDoc(userRef, { orgId: null });
@@ -165,7 +181,18 @@ export const listenToOrg = (orgId: string, cb: (org: Organization) => void) => {
     if (!isConfigValid || !orgId) return () => {};
     return onSnapshot(doc(db, "organizations", orgId), (docSnap) => {
         if (docSnap.exists()) {
+            // Note: This only gives org metadata. Credits are handled via listenToUser on the Admin ID.
             cb({ id: docSnap.id, ...docSnap.data() } as Organization);
+        }
+    });
+};
+
+// NEW: Listen to a specific user (Admin) to sync credits to the team
+export const listenToUser = (userId: string, cb: (user: UserProfile) => void) => {
+    if (!isConfigValid || !userId) return () => {};
+    return onSnapshot(doc(db, "users", userId), (docSnap) => {
+        if (docSnap.exists()) {
+            cb({ uid: docSnap.id, ...docSnap.data() } as UserProfile);
         }
     });
 };
@@ -179,11 +206,17 @@ export const createOrganization = async (userId: string, orgData: Partial<Organi
     members: [userId],
     plan: 'free',
     maxSeats: 5,
-    credits: 10, // Initial Shared Credits
+    // Credits are NOT stored on Org anymore, they live on the Admin User
     createdAt: Date.now()
   };
   const orgRef = await addDoc(collection(db, "organizations"), newOrgData);
-  await updateDoc(doc(db, "users", userId), { orgId: orgRef.id, role: 'admin' });
+  
+  // Set User as Admin and give initial credits (10)
+  await updateDoc(doc(db, "users", userId), { 
+      orgId: orgRef.id, 
+      role: 'admin',
+      credits: 10 // Initial allocation
+  });
   return orgRef.id;
 };
 
@@ -201,8 +234,10 @@ export const joinOrganization = async (userId: string, orgId: string) => {
       if (!orgDoc.exists()) throw new Error("Organization not found.");
       const orgData = orgDoc.data() as Organization;
       if (orgData.members.includes(userId)) return;
+      
       transaction.update(orgRef, { members: arrayUnion(userId) });
-      transaction.update(userRef, { orgId: orgId, role: 'member' });
+      // Members don't get own credits, they use Admin's
+      transaction.update(userRef, { orgId: orgId, role: 'member' }); 
     });
     return { success: true };
   } catch (e: any) { return { success: false, error: e.message }; }
@@ -378,9 +413,13 @@ export const saveQuoteToFirestore = async (
         bank: quoteData.bank
     });
 
-    // UPDATED: Deduct credit from ORGANIZATION, not user
+    // UPDATED: Deduct credit from ADMIN USER (Source of Truth), not Organization
     try {
-        await updateDoc(doc(db, "organizations", orgId), { credits: increment(-1) });
+        const orgSnap = await getDoc(doc(db, "organizations", orgId));
+        const adminId = orgSnap.data()?.adminId;
+        if (adminId) {
+            await updateDoc(doc(db, "users", adminId), { credits: increment(-1) });
+        }
     } catch (creditError) {
         console.warn("Credit update failed (non-fatal):", creditError);
     }
